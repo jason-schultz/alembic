@@ -11,7 +11,7 @@ defmodule Alembic.Game.GameLoop do
       GameSupervisor.start_player(%{
         id: player_id,
         name: player_name,
-        position: %Alembic.Entity.Position{current_room_id: "tavern"}
+        position: %Alembic.Entity.Position{zone_id: "tavern"}
       })
 
     Alembic.World.Room.add_player("tavern", player_id)

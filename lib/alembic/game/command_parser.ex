@@ -16,13 +16,13 @@ defmodule Alembic.Game.CommandParser do
 
   defp execute_command(["look"], player_id) do
     player = Player.get_state(player_id)
-    room = Room.look(player.position.current_room_id)
+    room = Room.look(player.position.room_id)
     format_room_description(room)
   end
 
   defp execute_command(["go", direction], player_id) do
     player = Player.get_state(player_id)
-    room = Room.look(player.position.current_room_id)
+    room = Room.look(player.position.room_id)
 
     case Map.get(room.exits, direction) do
       nil ->
@@ -37,7 +37,7 @@ defmodule Alembic.Game.CommandParser do
 
   defp execute_command(["talk", target], player_id) do
     player = Player.get_state(player_id)
-    room = Room.look(player.position.current_room_id)
+    room = Room.look(player.position.room_id)
 
     npc_id =
       Enum.find(room.npcs, fn npc_id ->
@@ -51,7 +51,7 @@ defmodule Alembic.Game.CommandParser do
 
       id ->
         npc = NPC.get_state(id)
-        dialogue = NPC.speak(id)
+        dialogue = NPC.get_dialogue(id)
         {:ok, "#{npc.name} says: \"#{dialogue}\""}
     end
   end

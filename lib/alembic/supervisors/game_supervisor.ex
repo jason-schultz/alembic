@@ -23,6 +23,14 @@ defmodule Alembic.Supervisors.GameSupervisor do
   end
 
   @doc """
+  Starts a new zone process.
+  """
+  def start_zone(zone_attrs) do
+    spec = {Alembic.World.Zone, zone_attrs}
+    DynamicSupervisor.start_child(__MODULE__, spec)
+  end
+
+  @doc """
   Starts a new player process.
   """
   def start_player(player_attrs) do
@@ -35,6 +43,14 @@ defmodule Alembic.Supervisors.GameSupervisor do
   """
   def start_npc(npc_attrs) do
     spec = {Alembic.Entity.NPC, npc_attrs}
+    DynamicSupervisor.start_child(__MODULE__, spec)
+  end
+
+  @doc """
+  Starts a new mob process.
+  """
+  def start_mob(mob_attrs) do
+    spec = {Alembic.Entity.Mob, mob_attrs}
     DynamicSupervisor.start_child(__MODULE__, spec)
   end
 end
