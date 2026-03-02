@@ -17,17 +17,19 @@ defmodule Alembic.Entity.Stats do
           attack: non_neg_integer(),
           defense: non_neg_integer(),
           magic_defense: non_neg_integer(),
-          fire_resistance: non_neg_integer(),
-          ice_resistance: non_neg_integer(),
-          lightning_resistance: non_neg_integer(),
-          poison_resistance: non_neg_integer(),
-          bleed_resistance: non_neg_integer(),
-          stun_resistance: non_neg_integer(),
           speed: non_neg_integer(),
           critical_chance: float(),
           critical_multiplier: float(),
           dodge_chance: float(),
-          accuracy: float()
+          accuracy: float(),
+          resistances: %{
+            fire: non_neg_integer(),
+            ice: non_neg_integer(),
+            lightning: non_neg_integer(),
+            poison: non_neg_integer(),
+            bleed: non_neg_integer(),
+            stun: non_neg_integer()
+          }
         }
 
   defstruct hp: 100,
@@ -37,17 +39,19 @@ defmodule Alembic.Entity.Stats do
             attack: 10,
             defense: 5,
             magic_defense: 5,
-            fire_resistance: 0,
-            ice_resistance: 0,
-            lightning_resistance: 0,
-            poison_resistance: 0,
-            bleed_resistance: 0,
-            stun_resistance: 0,
             speed: 10,
             critical_chance: 0.05,
             critical_multiplier: 1.5,
             dodge_chance: 0.05,
-            accuracy: 0.95
+            accuracy: 0.95,
+            resistances: %{
+              fire: 0,
+              ice: 0,
+              lightning: 0,
+              poison: 0,
+              bleed: 0,
+              stun: 0
+            }
 
   @doc """
   Creates a new stats struct with the given values.

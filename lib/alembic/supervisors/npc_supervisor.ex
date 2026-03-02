@@ -35,6 +35,7 @@ defmodule Alembic.Supervisors.NPCSupervisor do
     case Registry.lookup(Alembic.Registry.NPCRegistry, npc_id) do
       [{pid, _}] ->
         DynamicSupervisor.terminate_child(__MODULE__, pid)
+
       [] ->
         {:error, :not_found}
     end

@@ -3,6 +3,20 @@ defmodule Alembic.Entity.Player do
 
   alias Alembic.Entity.{Equipment, Position}
 
+  @type t :: %__MODULE__{
+          id: String.t(),
+          name: String.t(),
+          position: Position.t(),
+          stats: Stats.t(),
+          attributes: Attributes.t(),
+          equipment: Equipment.t() | nil,
+          inventory: list(),
+          skills: list(),
+          sprite_config: map(),
+          session_id: String.t() | nil,
+          handler_pid: pid() | nil
+        }
+
   defstruct [
     :id,
     :name,
@@ -13,7 +27,8 @@ defmodule Alembic.Entity.Player do
     :inventory,
     :skills,
     :sprite_config,
-    :session_id
+    :session_id,
+    :handler_pid
   ]
 
   # Player-specific init
@@ -21,7 +36,7 @@ defmodule Alembic.Entity.Player do
   def init(opts) do
     player = %__MODULE__{
       id: Keyword.fetch!(opts, :id),
-      name: Keyword.fetch!(opts, :name),
+      name: Keyword.get(opts, :name, "Unnamed Hero"),
       position: Keyword.get(opts, :position),
       stats: Keyword.get(opts, :stats),
       attributes: Keyword.get(opts, :attributes),
@@ -29,8 +44,13 @@ defmodule Alembic.Entity.Player do
       inventory: Keyword.get(opts, :inventory),
       skills: Keyword.get(opts, :skills),
       sprite_config: Keyword.get(opts, :sprite_config),
-      session_id: Keyword.get(opts, :session_id)
+      session_id: Keyword.get(opts, :session_id),
+      handler_pid: Keyword.get(opts, :handler_pid)
     }
+
+    Logger.info(
+      "Player #{player.name} (#{player.id}) initialized, handler: #{inspect(player.handler_pid)}"
+    )
 
     {:ok, player}
   end
@@ -54,6 +74,55 @@ defmodule Alembic.Entity.Player do
     GenServer.call(via_tuple(player_id), {:add_to_inventory, item})
   end
 
+  def set_handler(player_id, nil) do
+    case Registry.lookup(Alembic.Registry.PlayerRegistry, player_id) do
+      [{pid, _}] -> GenServer.cast(pid, {:set_handler, nil})
+      [] -> {:error, :not_found}
+    end
+  end
+
+  def set_handler(player_id, handler_pid) when is_pid(handler_pid) do
+    case Registry.lookup(Alembic.Registry.PlayerRegistry, player_id) do
+      [{pid, _}] -> GenServer.cast(pid, {:set_handler, handler_pid})
+      [] -> {:error, :not_found}
+    end
+  end
+
+  def disconnect(player_id) do
+    case Registry.lookup(Alembic.Registry.PlayerRegistry, player_id) do
+      [{pid, _}] ->
+        GenServer.stop(pid, :normal)
+
+      [] ->
+        Logger.warning("Attempted to disconnect non-existent player #{player_id}")
+        :ok
+    end
+  end
+
+  @impl true
+  def handle_cast(:disconnect, state) do
+    Logger.info("Player #{state.id} disconnecting, cleaning up session")
+
+    # Perform any necessary cleanup here (save state, notify others, etc.)
+    # For now, just log and stop the GenServer
+    {:stop, :normal, state}
+  end
+
+  @impl true
+  def handle_cast({:set_handler, handler_pid}, state) do
+    {:noreply, %{state | handler_pid: handler_pid}}
+  end
+
+  @impl true
+  def handle_call({:set_handler, new_handler_pid}, _from, state) do
+    Logger.info(
+      "Player #{state.id} handler updated: #{inspect(state.handler_pid)} -> #{inspect(new_handler_pid)}"
+    )
+
+    new_state = %{state | handler_pid: new_handler_pid}
+    {:reply, :ok, new_state}
+  end
+
   @impl true
   def handle_call({:equip_item, slot, item}, _from, state) do
     new_equipment = Equipment.equip(state.equipment, slot, item)
@@ -66,5 +135,11 @@ defmodule Alembic.Entity.Player do
     new_inventory = [item | state.inventory]
     new_state = %{state | inventory: new_inventory}
     {:reply, :ok, new_state}
+  end
+
+  @impl true
+  def handle_info({:send_to_client, payload}, state) do
+    send(state.handler_pid, {:send_packet, payload})
+    {:noreply, state}
   end
 end

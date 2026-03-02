@@ -63,7 +63,7 @@ defmodule Alembic.Entity.Base do
 
       # Private
 
-      defp via_tuple(entity_id) do
+      def via_tuple(entity_id) do
         {:via, Registry, {unquote(registry), entity_id}}
       end
 

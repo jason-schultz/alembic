@@ -15,17 +15,19 @@ defmodule Alembic.Test.Entity.CombatantTest do
         attack: 10,
         defense: 5,
         magic_defense: 5,
-        fire_resistance: 3,
-        ice_resistance: 3,
-        lightning_resistance: 3,
-        poison_resistance: 2,
-        bleed_resistance: 2,
-        stun_resistance: 2,
         speed: 10,
         critical_chance: 0.05,
         critical_multiplier: 1.5,
         dodge_chance: 0.05,
-        accuracy: 0.95
+        accuracy: 0.95,
+        resistances: %{
+          fire: 3,
+          ice: 3,
+          lightning: 3,
+          poison: 2,
+          bleed: 2,
+          stun: 2
+        }
       },
       overrides
     )
@@ -78,10 +80,10 @@ defmodule Alembic.Test.Entity.CombatantTest do
     test "applies multi-type damage (fire sword: physical + fire)" do
       player = build_player()
       # 10 physical - 5 defense = 5
-      # 2 fire - 3 fire_resistance = max(1, -1) = 1
-      # total = 6 damage
+      # 2 fire - 3 fire_resistance = max(0, -1) = 0
+      # total = 5 damage
       result = Combatant.take_damage(player, [damage(10, :physical), damage(2, :fire)])
-      assert result.stats.hp == 94
+      assert result.stats.hp == 95
     end
 
     test "hp does not go below 0" do
@@ -90,16 +92,18 @@ defmodule Alembic.Test.Entity.CombatantTest do
       assert result.stats.hp == 0
     end
 
-    test "damage is minimum 1 even when resistance exceeds damage amount" do
-      player = build_player(%{stats: base_stats(%{fire_resistance: 50})})
+    test "damage is 0 when resistance exceeds damage amount" do
+      player = build_player(%{stats: base_stats(%{resistances: %{fire: 50}})})
       result = Combatant.take_damage(player, [damage(5, :fire)])
-      # 5 fire - 50 resistance = max(1, -45) = 1
-      assert result.stats.hp == 99
+      # 5 fire - 50 resistance = max(0, -45) = 0
+      assert result.stats.hp == 100
     end
 
     test "returns error when damage_components is not a list" do
       player = build_player()
-      assert {:error, _msg} = Combatant.take_damage(player, damage(10, :physical))
+      result = Combatant.take_damage(player, damage(10, :physical))
+      assert result.stats.hp == player.stats.hp
+      assert result == player
     end
 
     test "applies ice damage mitigated by ice_resistance" do
@@ -155,7 +159,7 @@ defmodule Alembic.Test.Entity.CombatantTest do
     test "applies multi-type damage (fire sword: physical + fire)" do
       mob = build_mob()
       result = Combatant.take_damage(mob, [damage(10, :physical), damage(2, :fire)])
-      assert result.stats.hp == 94
+      assert result.stats.hp == 95
     end
 
     test "hp does not go below 0" do
@@ -166,7 +170,9 @@ defmodule Alembic.Test.Entity.CombatantTest do
 
     test "returns error when damage_components is not a list" do
       mob = build_mob()
-      assert {:error, _msg} = Combatant.take_damage(mob, damage(10, :physical))
+      result = Combatant.take_damage(mob, damage(10, :physical))
+      assert result.stats.hp == mob.stats.hp
+      assert result == mob
     end
   end
 

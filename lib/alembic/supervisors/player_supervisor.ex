@@ -41,10 +41,13 @@ defmodule Alembic.Supervisors.PlayerSupervisor do
       {:ok, #PID<0.123.0>}
   """
   def start_player(player_id, opts \\ []) do
-    player_opts = Keyword.put(opts, :id, player_id)
-    child_spec = {Player, player_opts}
+    spec = %{
+      id: player_id,
+      start: {Alembic.Entity.Player, :start_link, [opts]},
+      restart: :temporary
+    }
 
-    case DynamicSupervisor.start_child(__MODULE__, child_spec) do
+    case DynamicSupervisor.start_child(__MODULE__, spec) do
       {:ok, pid} -> {:ok, pid}
       {:error, {:already_started, pid}} -> {:ok, pid}
       {:error, reason} -> {:error, reason}

@@ -20,10 +20,12 @@ defmodule Alembic.Application do
       Alembic.Supervisors.RoomSupervisor,
 
       # Campaign supervisor with custome module
-      Alembic.Supervisors.CampaignSupervisor
+      Alembic.Supervisors.CampaignSupervisor,
 
-      # Network layer (when ready)
-      # AlembicWeb.Endpoint
+      # Network layer - Order matters!!!
+      # ConnectionSupervisor must start BEFORE acceptor
+      Alembic.Supervisors.ConnectionSupervisor,
+      Alembic.Network.Acceptor
     ]
 
     opts = [strategy: :one_for_one, name: Alembic.Supervisor]

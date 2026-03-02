@@ -33,6 +33,7 @@ defmodule Alembic.Supervisors.RoomSupervisor do
     case Registry.lookup(Alembic.Registry.RoomRegistry, room_id) do
       [{pid, _}] ->
         DynamicSupervisor.terminate_child(__MODULE__, pid)
+
       [] ->
         {:error, :not_found}
     end
