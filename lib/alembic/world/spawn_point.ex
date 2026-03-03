@@ -27,8 +27,11 @@ defmodule Alembic.World.SpawnPoint do
       y: json["y"],
       world_x: json["world_x"],
       world_y: json["world_y"],
-      facing: String.to_atom(json["facing"]),
+      facing: parse_facing(json["facing"]),
       condition: json["condition"]
     }
   end
+
+  defp parse_facing(nil), do: :south
+  defp parse_facing(facing) when is_binary(facing), do: String.to_atom(facing)
 end

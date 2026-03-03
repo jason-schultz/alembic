@@ -1,0 +1,124 @@
+{
+    "campaign": {
+        "id": "main_story",
+        "name": "The Shattered Crown",
+        "version": "1.0.0",
+        "start_zone_id": "town_millhaven",
+        "start_x": 10,
+        "start_y": 10,
+        "zones": [
+            {
+                "id": "town_millhaven",
+                "name": "Millhaven",
+                "type": "overworld",
+                "width": 32,
+                "height": 32,
+                "world_offset_x": 0,
+                "world_offset_y": 0,
+                "tiles": [
+                    [
+                        {
+                            "asset_id": "grass_01",
+                            "walkable": true
+                        },
+                        {
+                            "asset_id": "water_01",
+                            "walkable": false
+                        },
+                        {
+                            "asset_id": "path_01",
+                            "walkable": true,
+                            "room_enter": "tavern_rusty_flagon"
+                        }
+                    ]
+                ],
+                "npcs": [
+                    {
+                        "id": "merchant_aldric",
+                        "name": "Aldric",
+                        "asset_id": "npc_merchant_01",
+                        "x": 5,
+                        "y": 8,
+                        "dialog_id": "aldric_intro"
+                    }
+                ],
+                "mob_spawns": [
+                    {
+                        "mob_template_id": "forest_rat",
+                        "x": 20,
+                        "y": 20,
+                        "respawn_seconds": 60
+                    }
+                ]
+            }
+        ],
+        "rooms": [
+            {
+                "id": "tavern_rusty_flagon",
+                "name": "The Rusty Flagon",
+                "type": "tavern",
+                "width": 16,
+                "height": 10,
+                "tiles": [
+                    [
+                        {
+                            "asset_id": "floor_wood_01",
+                            "walkable": true
+                        },
+                        {
+                            "asset_id": "wall_stone_01",
+                            "walkable": false
+                        }
+                    ]
+                ],
+                "entrances": [
+                    {
+                        "id": "front_door",
+                        "room_x": 8,
+                        "room_y": 9,
+                        "leads_to_zone_id": "town_millhaven",
+                        "leads_to_x": 10,
+                        "leads_to_y": 11,
+                        "requires_key": null,
+                        "one_way": false
+                    }
+                ],
+                "npcs": [
+                    {
+                        "id": "innkeeper_brynn",
+                        "name": "Brynn",
+                        "asset_id": "npc_innkeeper_01",
+                        "x": 8,
+                        "y": 3,
+                        "dialog_id": "brynn_intro"
+                    }
+                ]
+            }
+        ],
+        "assets": {
+            "base_url": "https://assets.yourgame.com/campaigns/main_story/",
+            "manifest": [
+                {
+                    "id": "grass_01",
+                    "type": "tile",
+                    "file": "tiles/grass_01.png"
+                },
+                {
+                    "id": "water_01",
+                    "type": "tile",
+                    "file": "tiles/water_01.png"
+                },
+                {
+                    "id": "floor_wood_01",
+                    "type": "tile",
+                    "file": "tiles/floor_wood_01.png"
+                },
+                {
+                    "id": "npc_merchant_01",
+                    "type": "sprite",
+                    "file": "sprites/merchant_01.png"
+                }
+            ]
+        }
+    }
+}

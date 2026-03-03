@@ -422,9 +422,9 @@ defmodule Alembic.World.Server do
 
   @impl true
   def handle_info(:time_tick, state) do
-    send(self(), {:cast, :advance_time})
+    new_time = advance_world_time(state.world_time)
     schedule_time_tick()
-    {:noreply, state}
+    {:noreply, %{state | world_time: new_time}}
   end
 
   # Private Helpers

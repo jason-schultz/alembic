@@ -41,7 +41,7 @@ defmodule Alembic.World.Tile do
     :electrified,
     :poisonous,
     :magical,
-    :corrupted
+    :corrupted,
   ]
 
   @type tile_type ::
@@ -98,6 +98,7 @@ defmodule Alembic.World.Tile do
     interior: false,
     elevation: 0,
     entity_id: nil,
+    room_enter: nil,
     metadata: %{}
   ]
 
