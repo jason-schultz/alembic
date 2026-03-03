@@ -74,6 +74,16 @@ defmodule Alembic.Entity.Player do
     GenServer.call(via_tuple(player_id), {:add_to_inventory, item})
   end
 
+  def get_handler(player_id) do
+    case Registry.lookup(Alembic.Registry.PlayerRegistry, player_id) do
+      [{pid, _}] ->
+        GenServer.call(pid, :get_handler)
+
+      [] ->
+        {:error, :not_found}
+    end
+  end
+
   def set_handler(player_id, nil) do
     Logger.debug("set_handler called - player_id: #{player_id}, handler_pid: nil")
 
@@ -111,17 +121,8 @@ defmodule Alembic.Entity.Player do
   end
 
   @impl true
-  def handle_cast(:disconnect, state) do
-    Logger.info("Player #{state.id} disconnecting, cleaning up session")
-
-    # Perform any necessary cleanup here (save state, notify others, etc.)
-    # For now, just log and stop the GenServer
-    {:stop, :normal, state}
-  end
-
-  @impl true
-  def handle_cast({:set_handler, handler_pid}, state) do
-    {:noreply, %{state | handler_pid: handler_pid}}
+  def handle_call(:get_handler, _from, state) do
+    {:reply, {:ok, state.handler_pid}, state}
   end
 
   @impl true
@@ -130,8 +131,7 @@ defmodule Alembic.Entity.Player do
       "Player #{state.id} handler updated: #{inspect(state.handler_pid)} -> #{inspect(new_handler_pid)}"
     )
 
-    new_state = %{state | handler_pid: new_handler_pid}
-    {:reply, :ok, new_state}
+    {:reply, :ok, %{state | handler_pid: new_handler_pid}}
   end
 
   @impl true

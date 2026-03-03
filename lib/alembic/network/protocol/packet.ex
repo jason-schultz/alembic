@@ -34,22 +34,22 @@ defmodule Alembic.Network.Protocol.Packet do
   defmacro combat_event, do: 0x0106
   defmacro chat_message, do: 0x0107
 
-  def name(0x0001), do: :handshake_request
-  def name(0x0002), do: :handshake_response
-  def name(0x0010), do: :auth_request
-  def name(0x0011), do: :auth_success
-  def name(0x0012), do: :auth_failure
-  def name(0x0020), do: :session_ready
-  def name(0x0021), do: :disconnect
-  def name(0x0022), do: :heartbeat
-  def name(0x0023), do: :heartbeat_ack
-  def name(0x0100), do: :player_move
-  def name(0x0101), do: :viewport_update
-  def name(0x0102), do: :entity_spawn
-  def name(0x0103), do: :entity_despawn
-  def name(0x0104), do: :entity_move
-  def name(0x0105), do: :status_effect
-  def name(0x0106), do: :combat_event
-  def name(0x0107), do: :chat_message
+  def name(handshake_request()), do: :handshake_request
+  def name(handshake_response()), do: :handshake_response
+  def name(auth_request()), do: :auth_request
+  def name(auth_success()), do: :auth_success
+  def name(auth_failure()), do: :auth_failure
+  def name(session_ready()), do: :session_ready
+  def name(disconnect()), do: :disconnect
+  def name(heartbeat()), do: :heartbeat
+  def name(heartbeat_ack()), do: :heartbeat_ack
+  def name(player_move()), do: :player_move
+  def name(viewport_update()), do: :viewport_update
+  def name(entity_spawn()), do: :entity_spawn
+  def name(entity_despawn()), do: :entity_despawn
+  def name(entity_move()), do: :entity_move
+  def name(status_effect()), do: :status_effect
+  def name(combat_event()), do: :combat_event
+  def name(chat_message()), do: :chat_message
   def name(id), do: {:unknown, id}
 end

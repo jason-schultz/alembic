@@ -4,6 +4,7 @@ defmodule Alembic.Network.ConnectionHandler do
   require Alembic.Network.Protocol.Packet
   import Alembic.Network.Protocol.Packet
 
+  alias Alembic.Entity.Player
   alias Alembic.Entity.Position
   alias Alembic.Supervisors.PlayerSupervisor
   alias Alembic.Network.Protocol.{Decoder, Encoder}
@@ -96,7 +97,7 @@ defmodule Alembic.Network.ConnectionHandler do
   end
 
   def handle_info(:heartbeat, state) do
-    send_packet(state.socket, Encoder.encode(0x0022, <<>>))
+    send_packet(state.socket, Encoder.encode(heartbeat(), <<>>))
     Process.send_after(self(), :heartbeat, @heartbeat_interval)
     {:noreply, state}
   end
@@ -160,7 +161,7 @@ defmodule Alembic.Network.ConnectionHandler do
   # handle game packets - only when active
   defp process_packet({:player_move, %{x: _x, y: _y, facing: facing}}, state)
        when state.state == :active do
-    Alembic.Entity.Player.move(state.player_id, facing)
+    Player.move(state.player_id, facing)
     state
   end
 
@@ -173,22 +174,18 @@ defmodule Alembic.Network.ConnectionHandler do
   # Connection dropped - keep player in registry for reconnection
   defp cleanup_disconnect(state) do
     if state.player_id do
-      case Registry.lookup(Alembic.Registry.PlayerRegistry, state.player_id) do
-        [{pid, _}] ->
-          player = :sys.get_state(pid)
+      case Player.get_handler(state.player_id) do
+        {:ok, handler_pid} when handler_pid == self() ->
+          Logger.debug("Connection dropped, keeping player session alive: #{state.player_id}")
+          Player.set_handler(state.player_id, nil)
 
-          if player.handler_pid == self() do
-            Logger.debug("Connection dropped, keeping player session alive: #{state.player_id}")
-            Alembic.Entity.Player.set_handler(state.player_id, nil)
-          else
-            Logger.debug(
-              "Connection dropped, handler already replaced - not clearing: #{state.player_id}"
-            )
-          end
+        {:ok, _other} ->
+          Logger.debug(
+            "Connection dropped, handler already replaced - not clearing: #{state.player_id}"
+          )
 
-        [] ->
+        {:error, :not_found} ->
           Logger.debug("Connection dropped, player session already gone: #{state.player_id}")
-          :ok
       end
     end
   end
