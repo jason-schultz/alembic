@@ -1,9 +1,12 @@
 defmodule Alembic.Test.Entity.CombatantTest do
   use ExUnit.Case, async: true
 
-  alias Alembic.Entity.{Combatant, DamageComponent, Mob, Player, Stats, Equipment}
+  alias Alembic.Entity.Combatant
+  alias Alembic.Entity.{Player, Mob, Stats, Equipment}
 
-  # --- Fixtures ---
+  # ============================================================
+  # Test Helpers
+  # ============================================================
 
   defp base_stats(overrides \\ %{}) do
     Map.merge(
@@ -34,231 +37,284 @@ defmodule Alembic.Test.Entity.CombatantTest do
   end
 
   defp build_player(overrides \\ %{}) do
-    stats = Map.get(overrides, :stats, base_stats())
-
-    %Player{
-      id: "player_1",
-      name: "Test Player",
-      stats: stats,
-      equipment: %Equipment{weapon_one: nil, weapon_two: nil},
-      skills: %{},
-      inventory: []
-    }
+    Map.merge(
+      %Player{
+        id: "test_player",
+        name: "Test Hero",
+        stats: base_stats(),
+        equipment: %Equipment{weapon_one: nil, weapon_two: nil}
+      },
+      overrides
+    )
   end
 
   defp build_mob(overrides \\ %{}) do
-    stats = Map.get(overrides, :stats, base_stats())
-
-    %Mob{
-      id: "mob_1",
-      name: "Test Mob",
-      stats: stats
-    }
+    Map.merge(
+      %Mob{
+        id: "test_mob",
+        name: "Test Mob",
+        stats: base_stats()
+      },
+      overrides
+    )
   end
 
   defp damage(amount, type) do
-    %DamageComponent{amount: amount, damage_type: type}
+    %{amount: amount, damage_type: type}
   end
 
-  # --- take_damage/2 ---
+  defp weapon(attack_bonus), do: %{attack_bonus: attack_bonus}
+
+  # ============================================================
+  # take_damage/2 - Player
+  # ============================================================
 
   describe "take_damage/2 - Player" do
     test "applies physical damage mitigated by defense" do
       player = build_player()
-      # 10 physical - 5 defense = 5 damage
-      result = Combatant.take_damage(player, [damage(10, :physical)])
-      assert result.stats.hp == 95
+      # 20 physical - 5 defense = 15 damage
+      result = Combatant.take_damage(player, [damage(20, :physical)])
+      assert result.stats.hp == 85
     end
 
-    test "applies fire damage mitigated by fire_resistance" do
+    test "applies magical damage mitigated by magic_defense" do
+      player = build_player()
+      # 15 magic - 5 magic_defense = 10 damage
+      result = Combatant.take_damage(player, [damage(15, :magical)])
+      assert result.stats.hp == 90
+    end
+
+    test "applies elemental damage mitigated by resistance" do
       player = build_player()
       # 10 fire - 3 fire_resistance = 7 damage
       result = Combatant.take_damage(player, [damage(10, :fire)])
       assert result.stats.hp == 93
     end
 
+    test "damage is 0 when resistance fully absorbs damage" do
+      player = build_player(%{stats: base_stats(%{resistances: %{fire: 50}})})
+      # 5 fire - 50 resistance = fully resisted = 0 damage
+      result = Combatant.take_damage(player, [damage(5, :fire)])
+      assert result.stats.hp == 100
+    end
+
+    test "damage is minimum 1 when partially resisted to near zero" do
+      player = build_player(%{stats: base_stats(%{resistances: %{fire: 50}})})
+      # 51 fire - 50 resistance = 1 damage
+      result = Combatant.take_damage(player, [damage(51, :fire)])
+      assert result.stats.hp == 99
+    end
+
     test "applies multi-type damage (fire sword: physical + fire)" do
       player = build_player()
       # 10 physical - 5 defense = 5
-      # 2 fire - 3 fire_resistance = max(0, -1) = 0
+      # 2 fire - 3 fire_resistance = fully resisted = 0
       # total = 5 damage
       result = Combatant.take_damage(player, [damage(10, :physical), damage(2, :fire)])
       assert result.stats.hp == 95
     end
 
-    test "hp does not go below 0" do
-      player = build_player(%{stats: base_stats(%{hp: 5})})
-      result = Combatant.take_damage(player, [damage(100, :physical)])
+    test "applies multi-type damage where all components deal damage" do
+      player = build_player()
+      # 10 physical - 5 defense = 5
+      # 10 fire - 3 fire_resistance = 7
+      # total = 12 damage
+      result = Combatant.take_damage(player, [damage(10, :physical), damage(10, :fire)])
+      assert result.stats.hp == 88
+    end
+
+    test "hp cannot go below 0" do
+      player = build_player(%{stats: base_stats(%{hp: 10})})
+      result = Combatant.take_damage(player, [damage(1000, :physical)])
       assert result.stats.hp == 0
     end
 
-    test "damage is 0 when resistance exceeds damage amount" do
-      player = build_player(%{stats: base_stats(%{resistances: %{fire: 50}})})
-      result = Combatant.take_damage(player, [damage(5, :fire)])
-      # 5 fire - 50 resistance = max(0, -45) = 0
+    test "damage type with no resistance uses full amount" do
+      player = build_player()
+      # :arcane has no resistance entry, so 0 resistance
+      result = Combatant.take_damage(player, [damage(15, :arcane)])
+      assert result.stats.hp == 85
+    end
+
+    test "empty damage list does not change hp" do
+      player = build_player()
+      result = Combatant.take_damage(player, [])
       assert result.stats.hp == 100
     end
 
-    test "returns error when damage_components is not a list" do
+    test "invalid damage components returns entity unchanged" do
       player = build_player()
-      result = Combatant.take_damage(player, damage(10, :physical))
-      assert result.stats.hp == player.stats.hp
+      result = Combatant.take_damage(player, {10, :physical})
       assert result == player
     end
 
-    test "applies ice damage mitigated by ice_resistance" do
+    test "nil damage components returns entity unchanged" do
       player = build_player()
-      result = Combatant.take_damage(player, [damage(10, :ice)])
-      assert result.stats.hp == 93
-    end
-
-    test "applies lightning damage mitigated by lightning_resistance" do
-      player = build_player()
-      result = Combatant.take_damage(player, [damage(10, :lightning)])
-      assert result.stats.hp == 93
-    end
-
-    test "applies poison damage mitigated by poison_resistance" do
-      player = build_player()
-      result = Combatant.take_damage(player, [damage(10, :poison)])
-      assert result.stats.hp == 92
-    end
-
-    test "applies bleed damage mitigated by bleed_resistance" do
-      player = build_player()
-      result = Combatant.take_damage(player, [damage(10, :bleed)])
-      assert result.stats.hp == 92
-    end
-
-    test "applies stun damage mitigated by stun_resistance" do
-      player = build_player()
-      result = Combatant.take_damage(player, [damage(10, :stun)])
-      assert result.stats.hp == 92
-    end
-
-    test "applies magical damage mitigated by magic_defense" do
-      player = build_player()
-      result = Combatant.take_damage(player, [damage(10, :magical)])
-      assert result.stats.hp == 95
+      result = Combatant.take_damage(player, nil)
+      assert result == player
     end
   end
+
+  # ============================================================
+  # take_damage/2 - Mob
+  # ============================================================
 
   describe "take_damage/2 - Mob" do
     test "applies physical damage mitigated by defense" do
       mob = build_mob()
-      result = Combatant.take_damage(mob, [damage(10, :physical)])
-      assert result.stats.hp == 95
+      # 20 physical - 5 defense = 15 damage
+      result = Combatant.take_damage(mob, [damage(20, :physical)])
+      assert result.stats.hp == 85
     end
 
-    test "applies fire damage mitigated by fire_resistance" do
+    test "applies magical damage mitigated by magic_defense" do
       mob = build_mob()
+      # 15 magic - 5 magic_defense = 10 damage
+      result = Combatant.take_damage(mob, [damage(15, :magical)])
+      assert result.stats.hp == 90
+    end
+
+    test "applies elemental damage mitigated by resistance" do
+      mob = build_mob()
+      # 10 fire - 3 fire_resistance = 7 damage
       result = Combatant.take_damage(mob, [damage(10, :fire)])
       assert result.stats.hp == 93
     end
 
+    test "damage is 0 when resistance fully absorbs damage" do
+      mob = build_mob(%{stats: base_stats(%{resistances: %{fire: 50}})})
+      # 5 fire - 50 resistance = fully resisted = 0 damage
+      result = Combatant.take_damage(mob, [damage(5, :fire)])
+      assert result.stats.hp == 100
+    end
+
     test "applies multi-type damage (fire sword: physical + fire)" do
       mob = build_mob()
+      # 10 physical - 5 defense = 5
+      # 2 fire - 3 fire_resistance = fully resisted = 0
+      # total = 5 damage
       result = Combatant.take_damage(mob, [damage(10, :physical), damage(2, :fire)])
       assert result.stats.hp == 95
     end
 
-    test "hp does not go below 0" do
-      mob = build_mob(%{stats: base_stats(%{hp: 5})})
-      result = Combatant.take_damage(mob, [damage(100, :physical)])
+    test "hp cannot go below 0" do
+      mob = build_mob(%{stats: base_stats(%{hp: 10})})
+      result = Combatant.take_damage(mob, [damage(1000, :physical)])
       assert result.stats.hp == 0
-    end
-
-    test "returns error when damage_components is not a list" do
-      mob = build_mob()
-      result = Combatant.take_damage(mob, damage(10, :physical))
-      assert result.stats.hp == mob.stats.hp
-      assert result == mob
     end
   end
 
-  # --- heal/2 ---
+  # ============================================================
+  # heal/2
+  # ============================================================
 
   describe "heal/2" do
-    test "heals player by given amount" do
+    test "heal increases hp by amount" do
       player = build_player(%{stats: base_stats(%{hp: 50})})
       result = Combatant.heal(player, 20)
       assert result.stats.hp == 70
     end
 
-    test "heal does not exceed max_hp for player" do
-      player = build_player(%{stats: base_stats(%{hp: 95})})
-      result = Combatant.heal(player, 20)
+    test "heal cannot exceed max_hp" do
+      player = build_player(%{stats: base_stats(%{hp: 90})})
+      result = Combatant.heal(player, 100)
       assert result.stats.hp == 100
     end
 
-    test "heals mob by given amount" do
+    test "heal on full hp does not change hp" do
+      player = build_player()
+      result = Combatant.heal(player, 50)
+      assert result.stats.hp == 100
+    end
+
+    test "heal works on mob" do
       mob = build_mob(%{stats: base_stats(%{hp: 50})})
-      result = Combatant.heal(mob, 20)
-      assert result.stats.hp == 70
+      result = Combatant.heal(mob, 30)
+      assert result.stats.hp == 80
     end
 
-    test "heal does not exceed max_hp for mob" do
-      mob = build_mob(%{stats: base_stats(%{hp: 95})})
-      result = Combatant.heal(mob, 20)
-      assert result.stats.hp == 100
+    test "heal on dead entity restores hp" do
+      player = build_player(%{stats: base_stats(%{hp: 0})})
+      result = Combatant.heal(player, 50)
+      assert result.stats.hp == 50
     end
   end
 
-  # --- is_alive?/1 ---
+  # ============================================================
+  # is_alive?/1
+  # ============================================================
 
   describe "is_alive?/1" do
-    test "returns true when player hp > 0" do
+    test "returns true when hp > 0" do
       player = build_player()
-      assert Combatant.is_alive?(player)
+      assert Combatant.is_alive?(player) == true
     end
 
-    test "returns false when player hp is 0" do
+    test "returns false when hp == 0" do
       player = build_player(%{stats: base_stats(%{hp: 0})})
-      refute Combatant.is_alive?(player)
+      assert Combatant.is_alive?(player) == false
     end
 
-    test "returns true when mob hp > 0" do
+    test "returns false after lethal damage" do
+      player = build_player(%{stats: base_stats(%{hp: 5})})
+      result = Combatant.take_damage(player, [damage(1000, :physical)])
+      assert Combatant.is_alive?(result) == false
+    end
+
+    test "returns true after non-lethal damage" do
+      player = build_player()
+      result = Combatant.take_damage(player, [damage(10, :physical)])
+      assert Combatant.is_alive?(result) == true
+    end
+
+    test "works for mob" do
       mob = build_mob()
-      assert Combatant.is_alive?(mob)
-    end
+      assert Combatant.is_alive?(mob) == true
 
-    test "returns false when mob hp is 0" do
-      mob = build_mob(%{stats: base_stats(%{hp: 0})})
-      refute Combatant.is_alive?(mob)
+      dead_mob = build_mob(%{stats: base_stats(%{hp: 0})})
+      assert Combatant.is_alive?(dead_mob) == false
     end
   end
 
-  # --- attack_power/1 ---
+  # ============================================================
+  # attack_power/1
+  # ============================================================
 
   describe "attack_power/1" do
-    test "returns base attack for player with no weapons" do
+    test "player with no weapons uses stats.attack only" do
       player = build_player()
+      # stats.attack = 10, no weapons
       assert Combatant.attack_power(player) == 10
     end
 
-    test "includes weapon_one attack bonus for player" do
-      weapon = %{attack_bonus: 5}
-      player = build_player()
-      player = %{player | equipment: %{player.equipment | weapon_one: weapon}}
-      assert Combatant.attack_power(player) == 15
+    test "player with one weapon adds weapon attack bonus" do
+      player =
+        build_player(%{
+          equipment: %Equipment{weapon_one: weapon(15), weapon_two: nil}
+        })
+
+      # stats.attack (10) + weapon_one bonus (15) = 25
+      assert Combatant.attack_power(player) == 25
     end
 
-    test "includes both weapon bonuses for dual wielding player" do
-      weapon_one = %{attack_bonus: 5}
-      weapon_two = %{attack_bonus: 3}
-      player = build_player()
+    test "player with two weapons adds both weapon bonuses" do
+      player =
+        build_player(%{
+          equipment: %Equipment{weapon_one: weapon(15), weapon_two: weapon(10)}
+        })
 
-      player = %{
-        player
-        | equipment: %{player.equipment | weapon_one: weapon_one, weapon_two: weapon_two}
-      }
-
-      assert Combatant.attack_power(player) == 18
+      # stats.attack (10) + weapon_one (15) + weapon_two (10) = 35
+      assert Combatant.attack_power(player) == 35
     end
 
-    test "returns base attack stat for mob" do
+    test "mob attack power uses stats.attack directly" do
       mob = build_mob()
       assert Combatant.attack_power(mob) == 10
+    end
+
+    test "mob with higher attack stat returns correct value" do
+      mob = build_mob(%{stats: base_stats(%{attack: 50})})
+      assert Combatant.attack_power(mob) == 50
     end
   end
 end

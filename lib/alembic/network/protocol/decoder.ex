@@ -34,6 +34,10 @@ defmodule Alembic.Network.Protocol.Decoder do
     {:handshake_request, %{client_id: client_id, version: version}}
   end
 
+  defp decode_packet(handshake_response(), <<challenge::binary-size(32)>>) do
+    {:handshake_response, %{challenge: challenge}}
+  end
+
   defp decode_packet(
          auth_request(),
          <<token_len::16, token::binary-size(token_len), hmac::binary-size(32)>>

@@ -1,7 +1,7 @@
 defmodule Alembic.Entity.Player do
   use Alembic.Entity.Base, registry: Alembic.Registry.PlayerRegistry
 
-  alias Alembic.Entity.{Equipment, Position}
+  alias Alembic.Entity.{Attributes, Equipment, Position, Stats}
 
   @type t :: %__MODULE__{
           id: String.t(),
@@ -75,16 +75,27 @@ defmodule Alembic.Entity.Player do
   end
 
   def set_handler(player_id, nil) do
+    Logger.debug("set_handler called - player_id: #{player_id}, handler_pid: nil")
+
     case Registry.lookup(Alembic.Registry.PlayerRegistry, player_id) do
-      [{pid, _}] -> GenServer.cast(pid, {:set_handler, nil})
+      [{pid, _}] -> GenServer.call(pid, {:set_handler, nil})
       [] -> {:error, :not_found}
     end
   end
 
   def set_handler(player_id, handler_pid) when is_pid(handler_pid) do
+    Logger.debug(
+      "set_handler called - player_id: #{player_id}, handler_pid: #{inspect(handler_pid)}"
+    )
+
     case Registry.lookup(Alembic.Registry.PlayerRegistry, player_id) do
-      [{pid, _}] -> GenServer.cast(pid, {:set_handler, handler_pid})
-      [] -> {:error, :not_found}
+      [{pid, _}] ->
+        Logger.debug("set_handler found player pid: #{inspect(pid)}, calling GenServer")
+        GenServer.call(pid, {:set_handler, handler_pid})
+
+      [] ->
+        Logger.error("set_handler - player not found: #{player_id}")
+        {:error, :not_found}
     end
   end
 
@@ -135,6 +146,18 @@ defmodule Alembic.Entity.Player do
     new_inventory = [item | state.inventory]
     new_state = %{state | inventory: new_inventory}
     {:reply, :ok, new_state}
+  end
+
+  @impl true
+  def handle_call({:move, _facing}, _from, state) do
+    Logger.warning("Player #{state.id} attempted to move, but has no current position")
+    {:reply, {:error, :no_position}, state}
+  end
+
+  @impl true
+  def handle_call({:move, facing}, _from, state) do
+    new_position = Position.move(state.position, facing)
+    {:reply, :ok, %{state | position: new_position}}
   end
 
   @impl true

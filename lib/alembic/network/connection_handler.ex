@@ -4,6 +4,7 @@ defmodule Alembic.Network.ConnectionHandler do
   require Alembic.Network.Protocol.Packet
   import Alembic.Network.Protocol.Packet
 
+  alias Alembic.Entity.Position
   alias Alembic.Supervisors.PlayerSupervisor
   alias Alembic.Network.Protocol.{Decoder, Encoder}
 
@@ -75,8 +76,10 @@ defmodule Alembic.Network.ConnectionHandler do
   end
 
   def handle_info({:tcp_closed, _socket}, state) do
-    Logger.info("Client connection dropped: #{state.player_id}")
-    # Connection dropped - keep player alive for reconnection
+    Logger.info(
+      "Client connection dropped: #{inspect(state.player_id)}, state: #{inspect(state.state)}, pid: #{inspect(self())}"
+    )
+
     cleanup_disconnect(state)
     {:stop, :normal, state}
   end
@@ -131,7 +134,10 @@ defmodule Alembic.Network.ConnectionHandler do
 
   defp process_packet({:disconnect, %{reason: :logout}}, state)
        when state.state == :active do
-    Logger.info("Client requested logout: #{state.player_id}")
+    Logger.info(
+      "Client requested logout: #{inspect(state.player_id)}, state: #{inspect(state.state)}, pid: #{inspect(self())}"
+    )
+
     cleanup_logout(state)
     :gen_tcp.close(state.socket)
     state
@@ -167,8 +173,23 @@ defmodule Alembic.Network.ConnectionHandler do
   # Connection dropped - keep player in registry for reconnection
   defp cleanup_disconnect(state) do
     if state.player_id do
-      Logger.debug("Connection dropped, keeping player session alive: #{state.player_id}")
-      Alembic.Entity.Player.set_handler(state.player_id, nil)
+      case Registry.lookup(Alembic.Registry.PlayerRegistry, state.player_id) do
+        [{pid, _}] ->
+          player = :sys.get_state(pid)
+
+          if player.handler_pid == self() do
+            Logger.debug("Connection dropped, keeping player session alive: #{state.player_id}")
+            Alembic.Entity.Player.set_handler(state.player_id, nil)
+          else
+            Logger.debug(
+              "Connection dropped, handler already replaced - not clearing: #{state.player_id}"
+            )
+          end
+
+        [] ->
+          Logger.debug("Connection dropped, player session already gone: #{state.player_id}")
+          :ok
+      end
     end
   end
 
@@ -181,21 +202,28 @@ defmodule Alembic.Network.ConnectionHandler do
   end
 
   defp start_player_session(player_id, handler_pid) do
-    case PlayerSupervisor.start_player(player_id,
-           id: player_id,
-           handler_pid: handler_pid
-         ) do
+    case PlayerSupervisor.reconnect_player(player_id, handler_pid) do
       {:ok, _pid} ->
-        Logger.info("Player session started: #{player_id}")
+        Logger.info("Player reconnected: #{player_id}")
         :ok
 
-      {:error, {:already_started, _pid}} ->
-        Logger.info("Player reconnected: #{player_id}")
-        Alembic.Entity.Player.set_handler(player_id, handler_pid)
-        :ok
+      {:error, :not_found} ->
+        case PlayerSupervisor.start_player(player_id,
+               id: player_id,
+               handler_pid: handler_pid,
+               position: %Position{zone_id: "start_room", x: 0, y: 0, world_x: 0, world_y: 0}
+             ) do
+          {:ok, _pid} ->
+            Logger.info("Player session started: #{player_id}")
+            :ok
+
+          {:error, reason} ->
+            Logger.error("Failed to start player session for #{player_id}: #{inspect(reason)}")
+            {:error, reason}
+        end
 
       {:error, reason} ->
-        Logger.error("Failed to start player session for #{player_id}: #{inspect(reason)}")
+        Logger.error("Failed to reconnect player #{player_id}: #{inspect(reason)}")
         {:error, reason}
     end
   end

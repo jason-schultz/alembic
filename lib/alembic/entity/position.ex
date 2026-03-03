@@ -22,10 +22,10 @@ defmodule Alembic.Entity.Position do
 
   @type t :: %__MODULE__{
           zone_id: String.t(),
-          x: non_neg_integer(),
-          y: non_neg_integer(),
-          world_x: non_neg_integer(),
-          world_y: non_neg_integer(),
+          x: integer(),
+          y: integer(),
+          world_x: integer(),
+          world_y: integer(),
           facing: facing()
         }
 
@@ -48,10 +48,10 @@ defmodule Alembic.Entity.Position do
   """
   @spec new(
           String.t(),
-          non_neg_integer(),
-          non_neg_integer(),
-          non_neg_integer(),
-          non_neg_integer(),
+          integer(),
+          integer(),
+          integer(),
+          integer(),
           facing()
         ) :: t()
   def new(zone_id, x, y, world_x, world_y, facing \\ :south) do

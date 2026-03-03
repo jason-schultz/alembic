@@ -13,6 +13,7 @@ defmodule Alembic.Supervisors.PlayerSupervisor do
   """
 
   use DynamicSupervisor
+  require Logger
 
   alias Alembic.Entity.Player
 
@@ -43,7 +44,7 @@ defmodule Alembic.Supervisors.PlayerSupervisor do
   def start_player(player_id, opts \\ []) do
     spec = %{
       id: player_id,
-      start: {Alembic.Entity.Player, :start_link, [opts]},
+      start: {Player, :start_link, [opts]},
       restart: :temporary
     }
 
@@ -51,6 +52,23 @@ defmodule Alembic.Supervisors.PlayerSupervisor do
       {:ok, pid} -> {:ok, pid}
       {:error, {:already_started, pid}} -> {:ok, pid}
       {:error, reason} -> {:error, reason}
+    end
+  end
+
+  def reconnect_player(player_id, handler_pid) do
+    case Registry.lookup(Alembic.Registry.PlayerRegistry, player_id) do
+      [{pid, _}] ->
+        Logger.debug(
+          "PlayerSupervisor: reconnecting player #{player_id} with handler #{inspect(handler_pid)}"
+        )
+
+        case Alembic.Entity.Player.set_handler(player_id, handler_pid) do
+          :ok -> {:ok, pid}
+          {:error, reason} -> {:error, reason}
+        end
+
+      [] ->
+        {:error, :not_found}
     end
   end
 
