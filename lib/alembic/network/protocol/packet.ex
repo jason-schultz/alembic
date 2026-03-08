@@ -34,6 +34,10 @@ defmodule Alembic.Network.Protocol.Packet do
   defmacro combat_event, do: 0x0106
   defmacro chat_message, do: 0x0107
 
+  defmacro zone_info, do: 0x0200
+  defmacro room_info, do: 0x0201
+  defmacro spawn_position, do: 0x0202
+
   def name(handshake_request()), do: :handshake_request
   def name(handshake_response()), do: :handshake_response
   def name(auth_request()), do: :auth_request
@@ -51,5 +55,8 @@ defmodule Alembic.Network.Protocol.Packet do
   def name(status_effect()), do: :status_effect
   def name(combat_event()), do: :combat_event
   def name(chat_message()), do: :chat_message
+  def name(zone_info()), do: :zone_info
+  def name(room_info()), do: :room_info
+  def name(spawn_position()), do: :spawn_position
   def name(id), do: {:unknown, id}
 end

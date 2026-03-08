@@ -4,8 +4,8 @@ defmodule Alembic.Network.ConnectionHandler do
   require Alembic.Network.Protocol.Packet
   import Alembic.Network.Protocol.Packet
 
-  alias Alembic.Entity.Player
-  alias Alembic.Entity.Position
+  alias Alembic.World.{Room, Server, Zone}
+  alias Alembic.Entity.{Player, Position}
   alias Alembic.Supervisors.PlayerSupervisor
   alias Alembic.Network.Protocol.{Decoder, Encoder}
 
@@ -124,6 +124,8 @@ defmodule Alembic.Network.ConnectionHandler do
         send_packet(state.socket, Encoder.auth_success(session_id, player_id))
         Process.send_after(self(), :heartbeat, @heartbeat_interval)
         start_player_session(player_id, self())
+        # ← add this
+        send_world_sync(player_id, state.socket)
         %{state | player_id: player_id, session_id: session_id, state: :active}
 
       {:error, reason} ->
@@ -161,7 +163,27 @@ defmodule Alembic.Network.ConnectionHandler do
   # handle game packets - only when active
   defp process_packet({:player_move, %{x: _x, y: _y, facing: facing}}, state)
        when state.state == :active do
-    Player.move(state.player_id, facing)
+    # TODO: Player.get_state is a synchronous GenServer call inside a packet handler.
+    # For now it's fine, but eventually you'll want the player's current zone/room stored directly
+    # on the ConnectionHandler state so you don't need to call out to another process on every move packet.
+    player = Player.get_state(state.player_id)
+
+    case player.position do
+      %Position{room_id: nil, zone_id: zone_id} ->
+        handle_move_result(
+          Zone.move_player_facing(zone_id, state.player_id, facing),
+          state.player_id,
+          state.socket
+        )
+
+      %Position{room_id: room_id, zone_id: _zone_id} ->
+        handle_move_result(
+          Room.move_player_facing(room_id, state.player_id, facing),
+          state.player_id,
+          state.socket
+        )
+    end
+
     state
   end
 
@@ -190,6 +212,48 @@ defmodule Alembic.Network.ConnectionHandler do
     end
   end
 
+  @doc """
+  Handle the result of a move attempt, which could be a successful move, a transition to another room/zone, or an error.
+   - For successful moves, update the player's position and optionally send a confirmation to the client.
+   - For transitions, log the event and trigger the necessary room/zone change logic (not implemented here).
+   - For errors, log the reason and optionally send a correction packet to the client.
+   This function is called after attempting to move the player in the current room or zone, and it centralizes the handling of different outcomes from a move attempt.
+  """
+  defp handle_move_result({:ok, {new_x, new_y, new_world_x, new_world_y}}, player_id, _socket) do
+    # update the player's position to reflect the confirmed move
+    player = Player.get_state(player_id)
+
+    updated_position = %{
+      player.position
+      | x: new_x,
+        y: new_y,
+        world_x: new_world_x,
+        world_y: new_world_y
+    }
+
+    Player.set_position(player_id, updated_position)
+    # TODO Send position confirmation packet to client
+  end
+
+  defp handle_move_result({:transition, destination}, player_id, _socket)
+       when is_binary(destination) do
+    # Zone → Room transition, destination is a room_id
+    Logger.info("Player #{player_id} entering room: #{destination}")
+    # TODO: World.Server.enter_room(...)
+  end
+
+  defp handle_move_result({:transition, entrance}, player_id, _socket) when is_map(entrance) do
+    # Player stepped on an exit tile — orchestrate the room/zone change
+    # TODO: call World.Server.enter_room or transition_player
+    Logger.info("Player #{player_id} triggering transition: #{inspect(entrance)}")
+  end
+
+  defp handle_move_result({:error, reason}, _player_id, _socket) do
+    # Move was rejected — optionally send a correction packet to snap client back
+    Logger.debug("Move rejected: #{reason}")
+    # TODO: send position correction packet to client
+  end
+
   # Graceful logout - stop the player session entirely
   defp cleanup_logout(state) do
     if state.player_id do
@@ -205,10 +269,23 @@ defmodule Alembic.Network.ConnectionHandler do
         :ok
 
       {:error, :not_found} ->
+        spawn =
+          case Server.get_spawn_position("main_story") do
+            {:ok, pos} -> pos
+            _ -> %{zone_id: "town_millhaven", x: 0, y: 0}
+          end
+
         case PlayerSupervisor.start_player(player_id,
                id: player_id,
                handler_pid: handler_pid,
-               position: %Position{zone_id: "start_room", x: 0, y: 0, world_x: 0, world_y: 0}
+               position: %Position{
+                 zone_id: spawn.zone_id,
+                 x: spawn.x,
+                 y: spawn.y,
+                 world_x: spawn.x,
+                 world_y: spawn.y,
+                 facing: :south
+               }
              ) do
           {:ok, _pid} ->
             Logger.info("Player session started: #{player_id}")
@@ -241,6 +318,65 @@ defmodule Alembic.Network.ConnectionHandler do
   defp generate_session_id do
     :crypto.strong_rand_bytes(16)
     |> Base.encode16(case: :lower)
+  end
+
+  defp send_world_sync(player_id, socket) do
+    player = Player.get_state(player_id)
+    position = player.position
+
+    case position do
+      %Position{room_id: nil, zone_id: zone_id} ->
+        case Registry.lookup(Alembic.Registry.ZoneRegistry, zone_id) do
+          [{_pid, _}] ->
+            zone = Zone.get_state(zone_id)
+            send_packet(socket, Encoder.zone_info(zone.id, zone.name, zone.width, zone.height))
+
+            send_packet(
+              socket,
+              Encoder.spawn_position(
+                zone_id,
+                position.x,
+                position.y,
+                position.world_x,
+                position.world_y,
+                position.facing
+              )
+            )
+
+            viewport = Zone.get_viewport(zone_id, position.x, position.y)
+            send_packet(socket, Encoder.viewport_update(viewport))
+
+          [] ->
+            Logger.error("World sync failed: zone #{zone_id} not found for player #{player_id}")
+        end
+
+      %Position{room_id: room_id, zone_id: _zone_id} ->
+        case Registry.lookup(Alembic.Registry.RoomRegistry, room_id) do
+          [{_pid, _}] ->
+            room = Room.get_state(room_id)
+            send_packet(socket, Encoder.room_info(room.id, room.name, room.width, room.height))
+
+            send_packet(
+              socket,
+              Encoder.spawn_position(
+                room_id,
+                position.x,
+                position.y,
+                position.world_x,
+                position.world_y,
+                position.facing
+              )
+            )
+
+            viewport = Room.get_viewport(room_id, position.x, position.y)
+            send_packet(socket, Encoder.viewport_update(viewport))
+
+          [] ->
+            Logger.error("World sync failed: room #{room_id} not found for player #{player_id}")
+        end
+    end
+
+    Logger.info("World sync sent to player #{player_id}")
   end
 
   defp extract_packets(buffer) do

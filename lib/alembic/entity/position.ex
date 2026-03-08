@@ -22,6 +22,7 @@ defmodule Alembic.Entity.Position do
 
   @type t :: %__MODULE__{
           zone_id: String.t(),
+          room_id: String.t(),
           x: integer(),
           y: integer(),
           world_x: integer(),
@@ -31,6 +32,7 @@ defmodule Alembic.Entity.Position do
 
   defstruct [
     :zone_id,
+    :room_id,
     :x,
     :y,
     :world_x,
@@ -48,15 +50,17 @@ defmodule Alembic.Entity.Position do
   """
   @spec new(
           String.t(),
+          String.t(),
           integer(),
           integer(),
           integer(),
           integer(),
           facing()
         ) :: t()
-  def new(zone_id, x, y, world_x, world_y, facing \\ :south) do
+  def new(zone_id, room_id, x, y, world_x, world_y, facing \\ :south) do
     %__MODULE__{
       zone_id: zone_id,
+      room_id: room_id,
       x: x,
       y: y,
       world_x: world_x,
@@ -73,14 +77,16 @@ defmodule Alembic.Entity.Position do
   """
   @spec from_zone_coords(
           String.t(),
+          String.t(),
           non_neg_integer(),
           non_neg_integer(),
           {non_neg_integer(), non_neg_integer()},
           facing()
         ) :: t()
-  def from_zone_coords(zone_id, x, y, {zone_world_x, zone_world_y}, facing \\ :south) do
+  def from_zone_coords(zone_id, room_id, x, y, {zone_world_x, zone_world_y}, facing \\ :south) do
     %__MODULE__{
       zone_id: zone_id,
+      room_id: room_id,
       x: x,
       y: y,
       world_x: zone_world_x + x,

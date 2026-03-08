@@ -62,19 +62,6 @@ defmodule Alembic.Network.Protocol.Encoder do
   end
 
   @doc """
-  Encodes a viewport update packet with the given data structure.
-  ## Examples
-
-      iex> Encoder.viewport_update(%{x: 10, y: 20})
-      <<0x41, 0x4C, 0x42, 0x43, 0x01, 0x01, 0x01, 0x00, 0x00, 0x00, 0x08, ...>>
-  """
-  @spec viewport_update(map()) :: binary()
-  def viewport_update(viewport_data) do
-    payload = :erlang.term_to_binary(viewport_data)
-    encode(0x0101, payload)
-  end
-
-  @doc """
   Encodes an entity movement packet with the given parameters.
   ## Examples
 
@@ -145,5 +132,143 @@ defmodule Alembic.Network.Protocol.Encoder do
       end
 
     encode(0x0021, <<reason_code::8>>)
+  end
+
+  @doc """
+  Encodes a zone info packet sent to the client after auth.
+  Tells the client which zone they are in and its dimensions.
+  """
+  @spec zone_info(String.t(), String.t(), non_neg_integer(), non_neg_integer()) :: binary()
+  def zone_info(zone_id, zone_name, width, height) do
+    zone_id_bytes = byte_size(zone_id)
+    zone_name_bytes = byte_size(zone_name)
+
+    payload = <<
+      zone_id_bytes::16,
+      zone_id::binary,
+      zone_name_bytes::16,
+      zone_name::binary,
+      width::16,
+      height::16
+    >>
+
+    encode(zone_info(), payload)
+  end
+
+  @doc """
+  Encodes a room info packet sent to the client after auth.
+  Tells the client which room they are in and its dimensions.
+  """
+  @spec room_info(String.t(), String.t(), non_neg_integer(), non_neg_integer()) :: binary()
+  def room_info(room_id, room_name, width, height) do
+    room_id_bytes = byte_size(room_id)
+    room_name_bytes = byte_size(room_name)
+
+    payload = <<
+      room_id_bytes::16,
+      room_id::binary,
+      room_name_bytes::16,
+      room_name::binary,
+      width::16,
+      height::16
+    >>
+
+    encode(room_info(), payload)
+  end
+
+  @doc """
+  Encodes a spawn position packet sent to the client after auth.
+  Tells the client where to place the player in the world.
+  """
+  @spec spawn_position(String.t(), integer(), integer(), integer(), integer(), atom()) :: binary()
+  def spawn_position(zone_id, x, y, world_x, world_y, facing) do
+    zone_id_bytes = byte_size(zone_id)
+
+    facing_byte =
+      case facing do
+        :north -> 0
+        :south -> 1
+        :east -> 2
+        :west -> 3
+      end
+
+    payload = <<
+      zone_id_bytes::16,
+      zone_id::binary,
+      x::16,
+      y::16,
+      world_x::32,
+      world_y::32,
+      facing_byte::8
+    >>
+
+    encode(spawn_position(), payload)
+  end
+
+  @doc """
+  Encodes a viewport update packet.
+  Sends a flat list of tiles around the player's position.
+
+  Each tile is encoded as:
+    x::16, y::16, asset_id_len::16, asset_id::binary, walkable::8
+  """
+  @spec viewport_update(map()) :: binary()
+  def viewport_update(%{tiles: tiles, center: %{x: cx, y: cy}}) do
+    tile_count = length(tiles)
+
+    tiles_binary =
+      Enum.reduce(tiles, <<>>, fn tile, acc ->
+        asset_id = Map.get(tile, :texture_id) || Map.get(tile, :asset_id) || "void"
+        asset_id_bytes = byte_size(asset_id)
+        walkable_byte = if tile.walkable, do: 1, else: 0
+
+        acc <>
+          <<
+            tile.x::16,
+            tile.y::16,
+            asset_id_bytes::16,
+            asset_id::binary,
+            walkable_byte::8
+          >>
+      end)
+
+    payload = <<
+      cx::16,
+      cy::16,
+      tile_count::32,
+      tiles_binary::binary
+    >>
+
+    encode(viewport_update(), payload)
+  end
+
+  @doc """
+  Encodes an entity spawn packet.
+  Sent when a player, NPC, or mob enters the client's viewport.
+  """
+  @spec entity_spawn(String.t(), atom(), integer(), integer(), String.t()) :: binary()
+  def entity_spawn(entity_id, entity_type, x, y, sprite_id) do
+    entity_id_bytes = byte_size(entity_id)
+    sprite_id_bytes = byte_size(sprite_id)
+
+    type_byte =
+      case entity_type do
+        :player -> 0
+        :npc -> 1
+        :mob -> 2
+        _ -> 0xFF
+      end
+
+    payload = <<
+      entity_id_bytes::16,
+      entity_id::binary,
+      type_byte::8,
+      x::16,
+      y::16,
+      sprite_id_bytes::16,
+      sprite_id::binary
+    >>
+
+    encode(entity_spawn(), payload)
   end
 end
