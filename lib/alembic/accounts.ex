@@ -4,10 +4,6 @@ defmodule Alembic.Accounts do
   TODO: Replace stub with real database lookup.
   """
 
-  def get_player_by_token(token) when is_binary(token) do
-    {:ok, %{id: token}}
-  end
-
   @doc """
   Gets a player by their auth token.
   Currently a stub - replace with real DB lookup.

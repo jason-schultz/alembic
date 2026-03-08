@@ -10,7 +10,7 @@ defmodule Alembic.World.ObjectDefinition do
           asset_id: String.t(),
           x: integer(),
           y: integer(),
-          
+
           # :chest, :door, :lever, :decoration
           type: atom(),
           state: map()
@@ -24,7 +24,7 @@ defmodule Alembic.World.ObjectDefinition do
       asset_id: json["asset_id"],
       x: json["x"],
       y: json["y"],
-      type: String.to_existing_atom(json["type"] || "decoration"),
+      type: String.to_atom(json["type"] || "decoration"),
       state: json["state"] || %{}
     }
   end

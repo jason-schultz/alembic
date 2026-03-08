@@ -1,5 +1,6 @@
 defmodule Alembic.Application do
   use Application
+  require Logger
 
   @impl true
   def start(_type, _args) do
@@ -19,7 +20,7 @@ defmodule Alembic.Application do
       Alembic.Supervisors.ZoneSupervisor,
       Alembic.Supervisors.RoomSupervisor,
 
-      # Campaign supervisor with custome module
+      # Campaign supervisor with custom module
       Alembic.Supervisors.CampaignSupervisor,
 
       # Network layer - Order matters!!!
@@ -29,6 +30,14 @@ defmodule Alembic.Application do
     ]
 
     opts = [strategy: :one_for_one, name: Alembic.Supervisor]
-    Supervisor.start_link(children, opts)
+    {:ok, sup} = Supervisor.start_link(children, opts)
+
+    # Load the default campaign after supervision tree is up
+    case Alembic.Campaign.CampaignLoader.load("main_story") do
+      {:ok, _} -> Logger.info("Main campaign loaded")
+      {:error, reason} -> Logger.error("Failed to load campaign: #{inspect(reason)}")
+    end
+
+    {:ok, sup}
   end
 end

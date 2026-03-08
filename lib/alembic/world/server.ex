@@ -48,6 +48,7 @@ defmodule Alembic.World.Server do
   require Logger
 
   alias Alembic.World.{Zone, Room}
+  alias Alembic.Supervisors.{ZoneSupervisor, RoomSupervisor}
 
   @type world_time :: %{
           hour: 0..23,
@@ -61,6 +62,8 @@ defmodule Alembic.World.Server do
           campaign_id: String.t(),
           zones: %{String.t() => :loaded | :unloaded},
           rooms: %{String.t() => :loaded | :unloaded},
+          zone_definitions: %{String.t() => Zone.t()},
+          room_definitions: %{String.t() => Room.t()},
           world_time: world_time(),
           weather: weather(),
           active_events: list(String.t()),
@@ -71,6 +74,8 @@ defmodule Alembic.World.Server do
     :campaign_id,
     zones: %{},
     rooms: %{},
+    zone_definitions: %{},
+    room_definitions: %{},
     world_time: %{hour: 12, day: 1, season: :spring},
     weather: :clear,
     active_events: [],
@@ -199,34 +204,79 @@ defmodule Alembic.World.Server do
     GenServer.call(via_tuple(campaign_id), :list_loaded_rooms)
   end
 
+  def get_spawn_position(campaign_id) do
+    GenServer.call(via_tuple(campaign_id), :get_spawn_position)
+  end
+
   # Server Callbacks
 
   @impl true
   def init(opts) do
     campaign_id = Keyword.fetch!(opts, :campaign_id)
-    initial_zones = Keyword.get(opts, :zones, [])
+    zones = Keyword.get(opts, :zones, [])
+    rooms = Keyword.get(opts, :rooms, [])
+    zone_definitions = Map.new(zones, fn zone -> {zone.id, zone} end)
+    room_definitions = Map.new(rooms, fn room -> {room.id, room} end)
 
     Logger.info("World Server starting for campaign #{campaign_id}...")
 
+    # Start all zones
+    zone_status =
+      Map.new(zones, fn zone ->
+        case ZoneSupervisor.start_zone(zone) do
+          {:ok, _pid} ->
+            Logger.info("Zone #{zone.id} started")
+            {zone.id, :loaded}
+
+          {:error, reason} ->
+            Logger.error("Failed to start zone #{zone.id}: #{inspect(reason)}")
+            {zone.id, :unloaded}
+        end
+      end)
+
+    # Start all rooms
+    room_status =
+      Map.new(rooms, fn room ->
+        case RoomSupervisor.start_room(room) do
+          {:ok, _pid} ->
+            Logger.info("Room #{room.id} started")
+            {room.id, :loaded}
+
+          {:error, reason} ->
+            Logger.error("Failed to start room #{room.id}: #{inspect(reason)}")
+            {room.id, :unloaded}
+        end
+      end)
+
     state = %__MODULE__{
       campaign_id: campaign_id,
-      zones: Map.new(initial_zones, fn zone_id -> {zone_id, :unloaded} end),
-      rooms: %{},
+      zones: zone_status,
+      rooms: room_status,
+      zone_definitions: zone_definitions,
+      room_definitions: room_definitions,
       world_time: %{hour: 12, day: 1, season: :spring},
       weather: :clear,
       active_events: [],
-      metadata: %{}
+      metadata: %{
+        start_zone_id: Keyword.get(opts, :start_zone_id),
+        start_x: Keyword.get(opts, :start_x, 0),
+        start_y: Keyword.get(opts, :start_y, 0)
+      }
     }
 
-    # Load initial zones (typically just the spawn zone)
-    Enum.each(initial_zones, fn zone_id ->
-      send(self(), {:load_zone_async, zone_id})
-    end)
-
-    # Schedule time advancement (every 2 minutes real time = 1 hour game time)
     schedule_time_tick()
-
     {:ok, state}
+  end
+
+  @impl true
+  def handle_call(:get_spawn_position, _from, state) do
+    position = %{
+      zone_id: state.metadata.start_zone_id,
+      x: state.metadata.start_x,
+      y: state.metadata.start_y
+    }
+
+    {:reply, {:ok, position}, state}
   end
 
   @impl true
@@ -240,19 +290,16 @@ defmodule Alembic.World.Server do
       :loaded ->
         {:reply, {:ok, zone_id}, state}
 
-      :unloaded ->
-        case do_load_zone(zone_id, state.campaign_id) do
+      _ ->
+        # pass state, not campaign_id
+        case do_load_zone(zone_id, state) do
           :ok ->
             new_zones = Map.put(state.zones, zone_id, :loaded)
-            Logger.info("Zone #{zone_id} loaded successfully")
             {:reply, {:ok, zone_id}, %{state | zones: new_zones}}
 
           {:error, reason} ->
             {:reply, {:error, reason}, state}
         end
-
-      nil ->
-        {:reply, {:error, :zone_not_found}, state}
     end
   end
 
@@ -283,10 +330,10 @@ defmodule Alembic.World.Server do
         {:reply, {:ok, room_id}, state}
 
       _ ->
-        case do_load_room(room_id, state.campaign_id) do
+        # pass state, not campaign_id
+        case do_load_room(room_id, state) do
           :ok ->
             new_rooms = Map.put(state.rooms, room_id, :loaded)
-            Logger.info("Room #{room_id} loaded successfully")
             {:reply, {:ok, room_id}, %{state | rooms: new_rooms}}
 
           {:error, reason} ->
@@ -438,26 +485,17 @@ defmodule Alembic.World.Server do
     Process.send_after(self(), :time_tick, 120_000)
   end
 
-  defp do_load_zone(zone_id, campaign_id) do
-    # TODO: Load zone data from campaign/database
-    # For now, create a stub zone
-    zone_data = %Zone{
-      id: zone_id,
-      name: "Zone #{zone_id}",
-      width: 256,
-      height: 256,
-      world_offset_x: 0,
-      world_offset_y: 0,
-      type: :overworld
-    }
+  defp do_load_zone(zone_id, state) do
+    case Map.get(state.zone_definitions, zone_id) do
+      nil ->
+        {:error, :zone_definition_not_found}
 
-    case DynamicSupervisor.start_child(
-           Alembic.Supervisors.ZoneSupervisor,
-           {Zone, zone_data}
-         ) do
-      {:ok, _pid} -> :ok
-      {:error, {:already_started, _pid}} -> :ok
-      {:error, reason} -> {:error, reason}
+      %Zone{} = zone_data ->
+        case ZoneSupervisor.start_zone(zone_data) do
+          {:ok, _pid} -> :ok
+          {:error, {:already_started, _pid}} -> :ok
+          {:error, reason} -> {:error, reason}
+        end
     end
   end
 
@@ -471,23 +509,17 @@ defmodule Alembic.World.Server do
     end
   end
 
-  defp do_load_room(room_id, _campaign_id) do
-    # TODO: Load room data from campaign/database
-    room_data = %Room{
-      id: room_id,
-      name: "Room #{room_id}",
-      width: 16,
-      height: 10,
-      type: :house
-    }
+  defp do_load_room(room_id, state) do
+    case Map.get(state.room_definitions, room_id) do
+      nil ->
+        {:error, :room_definition_not_found}
 
-    case DynamicSupervisor.start_child(
-           Alembic.Supervisors.RoomSupervisor,
-           {Room, room_data}
-         ) do
-      {:ok, _pid} -> :ok
-      {:error, {:already_started, _pid}} -> :ok
-      {:error, reason} -> {:error, reason}
+      %Room{} = room_data ->
+        case RoomSupervisor.start_room(room_data) do
+          {:ok, _pid} -> :ok
+          {:error, {:already_started, _pid}} -> :ok
+          {:error, reason} -> {:error, reason}
+        end
     end
   end
 
