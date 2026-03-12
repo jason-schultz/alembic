@@ -16,8 +16,8 @@ defmodule Alembic.World.Zone do
 
   use Alembic.World.Base,
     registry: Alembic.Registry.ZoneRegistry,
-    viewport_width: 20,
-    viewport_height: 12,
+    viewport_width: 32,
+    viewport_height: 24,
     tick_interval: 100
 
   @zone_types [:overworld, :dungeon, :town, :wilderness, :interior]

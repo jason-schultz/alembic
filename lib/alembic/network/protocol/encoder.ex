@@ -79,7 +79,7 @@ defmodule Alembic.Network.Protocol.Encoder do
       end
 
     payload = <<entity_id::binary-size(16), x::16, y::16, facing_byte::8>>
-    encode(0x0104, payload)
+    encode(entity_move(), payload)
   end
 
   @doc """
@@ -270,5 +270,51 @@ defmodule Alembic.Network.Protocol.Encoder do
     >>
 
     encode(entity_spawn(), payload)
+  end
+
+  @spec position_confirm(String.t(), integer(), integer(), integer(), integer(), atom()) :: binary()
+  def position_confirm(zone_id, x, y, world_x, world_y, facing) do
+    zone_id_bytes = byte_size(zone_id)
+
+    facing_byte =
+      case facing do
+        :north -> 0
+        :south -> 1
+        :east -> 2
+        :west -> 3
+      end
+
+    payload = <<
+      zone_id_bytes::16,
+      zone_id::binary,
+      x::16,
+      y::16,
+      world_x::32,
+      world_y::32,
+      facing_byte::8
+    >>
+
+    encode(position_confirm(), payload)
+  end
+
+  @spec position_correction(integer(), integer(), integer(), integer(), atom()) :: binary()
+  def position_correction(x, y, world_x, world_y, facing) do
+    facing_byte =
+      case facing do
+        :north -> 0
+        :south -> 1
+        :east -> 2
+        :west -> 3
+      end
+
+    payload = <<
+      x::16,
+      y::16,
+      world_x::32,
+      world_y::32,
+      facing_byte::8
+    >>
+
+    encode(position_correction(), payload)
   end
 end

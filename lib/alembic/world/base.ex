@@ -235,7 +235,7 @@ defmodule Alembic.World.Base do
       end
 
       # Allow child modules to override
-      defoverridable process_tick: 1, world_type: 0, tick_enabled?: 0
+      defoverridable process_tick: 1, world_type: 0, tick_enabled?: 0, build_viewport: 3
     end
   end
 end

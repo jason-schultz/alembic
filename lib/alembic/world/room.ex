@@ -21,8 +21,8 @@ defmodule Alembic.World.Room do
 
   use Alembic.World.Base,
     registry: Alembic.Registry.RoomRegistry,
-    viewport_width: 16,
-    viewport_height: 10,
+    viewport_width: 32,
+    viewport_height: 24,
     tick_interval: 100
 
   @room_types [:tavern, :shop, :house, :dungeon_room, :puzzle_room]

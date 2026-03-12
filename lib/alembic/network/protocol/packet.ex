@@ -37,6 +37,8 @@ defmodule Alembic.Network.Protocol.Packet do
   defmacro zone_info, do: 0x0200
   defmacro room_info, do: 0x0201
   defmacro spawn_position, do: 0x0202
+  defmacro position_confirm, do: 0x0203
+  defmacro position_correction, do: 0x0204
 
   def name(handshake_request()), do: :handshake_request
   def name(handshake_response()), do: :handshake_response
@@ -58,5 +60,7 @@ defmodule Alembic.Network.Protocol.Packet do
   def name(zone_info()), do: :zone_info
   def name(room_info()), do: :room_info
   def name(spawn_position()), do: :spawn_position
+  def name(position_confirm()), do: :position_confirm
+  def name(position_correction()), do: :position_correction
   def name(id), do: {:unknown, id}
 end

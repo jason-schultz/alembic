@@ -90,6 +90,10 @@ defmodule Alembic.Campaign.CampaignLoader do
   defp build_zone(zone_json) do
     tiles = build_zone_tiles(zone_json["tiles"] || [], zone_json["width"])
 
+    Logger.info(
+      "Building zone #{zone_json["id"]}: #{zone_json["width"]}x#{zone_json["height"]}, #{map_size(tiles)} tile rows"
+    )
+
     %Zone{
       id: zone_json["id"],
       name: zone_json["name"],

@@ -187,6 +187,74 @@ defmodule Alembic.Network.ConnectionHandler do
     state
   end
 
+  defp process_packet({:heartbeat_ack, _}, state) when state.state == :active do
+    # Optionally track last heartbeat ack time for more accurate timeout detection
+    state
+  end
+
+  defp process_packet({:player_move, %{x: _client_x, y: _client_y, facing: facing}}, state)
+       when state.state == :active do
+    player_id = state.player_id
+
+    position = Player.get_position(player_id)
+
+    move_result =
+      case position.room_id do
+        nil -> Zone.move_player_facing(position.zone_id, player_id, facing)
+        room_id -> Room.move_player_facing(room_id, player_id, facing)
+      end
+
+    case move_result do
+      {:ok, {new_x, new_y, new_world_x, new_world_y}} ->
+        updated_position = %{
+          position
+          | x: new_x,
+            y: new_y,
+            world_x: new_world_x,
+            world_y: new_world_y
+        }
+
+        Player.set_position(player_id, updated_position)
+
+        send_packet(
+          state.socket,
+          Encoder.position_confirm(
+            updated_position.zone_id,
+            new_x,
+            new_y,
+            new_world_x,
+            new_world_y,
+            facing
+          )
+        )
+
+        state
+
+      {:transition, destination} ->
+        # TODO: Handle zone/room transitions
+        Logger.info("Player #{player_id} triggered transition to #{destination}")
+
+        state
+
+      {:error, reason} ->
+        # Send correction -- snap client back to authoritative position
+        Logger.debug("Move rejected for player #{player_id}: #{reason}")
+
+        send_packet(
+          state.socket,
+          Encoder.position_correction(
+            position.x,
+            position.y,
+            position.world_x,
+            position.world_y,
+            position.facing
+          )
+        )
+
+        state
+    end
+  end
+
   # reject out of order packets
   defp process_packet({packet_type, _}, state) do
     Logger.warning("Unexpected packet #{packet_type} in state #{state.state}")
@@ -219,11 +287,11 @@ defmodule Alembic.Network.ConnectionHandler do
    - For errors, log the reason and optionally send a correction packet to the client.
    This function is called after attempting to move the player in the current room or zone, and it centralizes the handling of different outcomes from a move attempt.
   """
-  defp handle_move_result({:ok, {new_x, new_y, new_world_x, new_world_y}}, player_id, _socket) do
+  defp handle_move_result({:ok, {new_x, new_y, new_world_x, new_world_y}}, player_id, socket) do
     # update the player's position to reflect the confirmed move
     player = Player.get_state(player_id)
 
-    updated_position = %{
+    updated_position = %Position{
       player.position
       | x: new_x,
         y: new_y,
@@ -232,7 +300,23 @@ defmodule Alembic.Network.ConnectionHandler do
     }
 
     Player.set_position(player_id, updated_position)
-    # TODO Send position confirmation packet to client
+
+    send_packet(
+      socket,
+      Encoder.position_confirm(
+        updated_position.zone_id,
+        new_x,
+        new_y,
+        new_world_x,
+        new_world_y,
+        updated_position.facing
+      )
+    )
+
+    viewport = Zone.get_viewport(updated_position.zone_id, new_x, new_y)
+    send_packet(socket, Encoder.viewport_update(viewport))
+
+    Logger.debug("Move confirmed for player #{player_id}, new position: (#{new_x}, #{new_y})")
   end
 
   defp handle_move_result({:transition, destination}, player_id, _socket)
@@ -248,10 +332,22 @@ defmodule Alembic.Network.ConnectionHandler do
     Logger.info("Player #{player_id} triggering transition: #{inspect(entrance)}")
   end
 
-  defp handle_move_result({:error, reason}, _player_id, _socket) do
+  defp handle_move_result({:error, reason}, player_id, socket) do
     # Move was rejected — optionally send a correction packet to snap client back
-    Logger.debug("Move rejected: #{reason}")
-    # TODO: send position correction packet to client
+    Logger.debug("Move rejected for player #{player_id}: #{reason}")
+    player = Player.get_state(player_id)
+    position = player.position
+
+    send_packet(
+      socket,
+      Encoder.position_correction(
+        position.x,
+        position.y,
+        position.world_x,
+        position.world_y,
+        position.facing
+      )
+    )
   end
 
   # Graceful logout - stop the player session entirely
@@ -343,6 +439,7 @@ defmodule Alembic.Network.ConnectionHandler do
               )
             )
 
+            Zone.player_enter(zone_id, player_id, position.x, position.y)
             viewport = Zone.get_viewport(zone_id, position.x, position.y)
             send_packet(socket, Encoder.viewport_update(viewport))
 

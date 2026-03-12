@@ -74,6 +74,10 @@ defmodule Alembic.Entity.Player do
     GenServer.call(via_tuple(player_id), {:add_to_inventory, item})
   end
 
+  def get_position(player_id) do
+    GenServer.call(via_tuple(player_id), :get_position)
+  end
+
   def get_handler(player_id) do
     case Registry.lookup(Alembic.Registry.PlayerRegistry, player_id) do
       [{pid, _}] ->
@@ -158,6 +162,11 @@ defmodule Alembic.Entity.Player do
   def handle_call({:move, facing}, _from, state) do
     new_position = Position.move(state.position, facing)
     {:reply, :ok, %{state | position: new_position}}
+  end
+
+  @impl true
+  def handle_call(:get_position, _from, state) do
+    {:reply, state.position, state}
   end
 
   @impl true
