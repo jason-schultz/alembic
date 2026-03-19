@@ -23,6 +23,9 @@ defmodule Alembic.Application do
       # Campaign supervisor with custom module
       Alembic.Supervisors.CampaignSupervisor,
 
+      # HTTP Asset Server -- serves sprites/tilesets to clients
+      Alembic.Http.AssetServer,
+
       # Network layer - Order matters!!!
       # ConnectionSupervisor must start BEFORE acceptor
       Alembic.Supervisors.ConnectionSupervisor,

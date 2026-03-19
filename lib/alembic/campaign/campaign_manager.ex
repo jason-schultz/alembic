@@ -47,6 +47,24 @@ defmodule Alembic.Campaign.CampaignManager do
   end
 
   @doc """
+  Returns world metadata for each running campaign, used to build the WORLD_LIST packet.
+  Player count is not yet tracked per-world and is always 0.
+  """
+  def list_world_infos do
+    list_campaigns()
+    |> Enum.map(fn campaign_id ->
+      state = WorldServer.get_state(campaign_id)
+
+      %{
+        world_id: campaign_id,
+        world_name: state.name,
+        description: state.description,
+        player_count: 0
+      }
+    end)
+  end
+
+  @doc """
   Returns statistics about running campaigns.
   """
   def stats do

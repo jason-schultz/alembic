@@ -62,6 +62,36 @@ defmodule Alembic.Network.Protocol.Encoder do
   end
 
   @doc """
+  Encodes a world list packet pushed to the client immediately after AUTH_SUCCESS.
+
+  Each world entry: world_id, world_name, description (all length-prefixed UTF-8), player_count u16.
+  """
+  @spec world_list(list(map())) :: binary()
+  def world_list(worlds) do
+    count = length(worlds)
+
+    worlds_binary =
+      Enum.reduce(worlds, <<>>, fn world, acc ->
+        world_id_len = byte_size(world.world_id)
+        world_name_len = byte_size(world.world_name)
+        description_len = byte_size(world.description)
+
+        acc <>
+          <<
+            world_id_len::16,
+            world.world_id::binary,
+            world_name_len::16,
+            world.world_name::binary,
+            description_len::16,
+            world.description::binary,
+            world.player_count::16
+          >>
+      end)
+
+    encode(world_list(), <<count::16, worlds_binary::binary>>)
+  end
+
+  @doc """
   Encodes an entity movement packet with the given parameters.
   ## Examples
 
@@ -272,7 +302,8 @@ defmodule Alembic.Network.Protocol.Encoder do
     encode(entity_spawn(), payload)
   end
 
-  @spec position_confirm(String.t(), integer(), integer(), integer(), integer(), atom()) :: binary()
+  @spec position_confirm(String.t(), integer(), integer(), integer(), integer(), atom()) ::
+          binary()
   def position_confirm(zone_id, x, y, world_x, world_y, facing) do
     zone_id_bytes = byte_size(zone_id)
 

@@ -76,6 +76,8 @@ defmodule Alembic.Campaign.CampaignLoader do
     rooms = Enum.map(campaign["rooms"], &build_room/1)
 
     case CampaignSupervisor.start_campaign(campaign_id,
+           name: campaign["name"] || campaign_id,
+           description: campaign["description"] || "",
            zones: zones,
            rooms: rooms,
            start_zone_id: campaign["start_zone_id"],

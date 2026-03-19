@@ -16,12 +16,10 @@ defmodule Alembic.Network.Protocol.Decoder do
   end
 
   def decode(<<@magic, _rest::binary>>) do
-    # valid magic but incomplete packet
     {:incomplete}
   end
 
   def decode(<<_non_magic::binary-size(4), _rest::binary>>) do
-    # invalid magic, reject connection
     {:error, :invalid_magic}
   end
 
@@ -43,6 +41,20 @@ defmodule Alembic.Network.Protocol.Decoder do
          <<token_len::16, token::binary-size(token_len), hmac::binary-size(32)>>
        ) do
     {:auth_request, %{token: token, hmac: hmac}}
+  end
+
+  defp decode_packet(
+         join_world(),
+         <<world_id_len::16, world_id::binary-size(world_id_len)>>
+       ) do
+    {:join_world, %{world_id: world_id}}
+  end
+
+  defp decode_packet(
+         leave_world(),
+         <<world_id_len::16, world_id::binary-size(world_id_len)>>
+       ) do
+    {:leave_world, %{world_id: world_id}}
   end
 
   defp decode_packet(player_move(), <<x::16, y::16, facing::8>>) do
@@ -69,6 +81,10 @@ defmodule Alembic.Network.Protocol.Decoder do
       end
 
     {:disconnect, %{reason: reason_atom}}
+  end
+
+  defp decode_packet(heartbeat_ack(), <<>>) do
+    {:heartbeat_ack, %{}}
   end
 
   defp decode_packet(id, payload) do

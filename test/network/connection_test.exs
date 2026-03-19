@@ -32,10 +32,17 @@ defmodule Alembic.Test.Network.ConnectionTest do
   end
 
   defp recv_packet(socket) do
-    {:ok, data} = :gen_tcp.recv(socket, 0, @timeout)
+    {:ok, header} = :gen_tcp.recv(socket, 13, @timeout)
 
-    <<0x41, 0x4C, 0x42, 0x43, _version::24, packet_id::16, length::32,
-      payload::binary-size(length)>> = data
+    <<0x41, 0x4C, 0x42, 0x43, _version::24, packet_id::16, length::32>> = header
+
+    payload =
+      if length > 0 do
+        {:ok, p} = :gen_tcp.recv(socket, length, @timeout)
+        p
+      else
+        <<>>
+      end
 
     {packet_id, payload}
   end
@@ -48,6 +55,10 @@ defmodule Alembic.Test.Network.ConnectionTest do
     challenge
   end
 
+  defp do_join_world(socket, world_id \\ "main_story") do
+    send_packet(socket, join_world(), <<byte_size(world_id)::16, world_id::binary>>)
+  end
+
   defp do_auth(socket, challenge, token) do
     hmac = :crypto.mac(:hmac, :sha256, token, challenge)
     auth_payload = <<byte_size(token)::16, token::binary, hmac::binary>>
@@ -58,11 +69,16 @@ defmodule Alembic.Test.Network.ConnectionTest do
   defp full_connect(token) do
     socket = connect()
     challenge = do_handshake(socket)
-    {0x0011, payload} = do_auth(socket, challenge, token)
+    {auth_success(), payload} = do_auth(socket, challenge, token)
 
     # Extract player_id from auth_success payload
     <<session_id_len::16, _session_id::binary-size(session_id_len), player_id_len::16,
       player_id::binary-size(player_id_len)>> = payload
+
+    # Server pushes WORLD_LIST immediately after AUTH_SUCCESS
+    {world_list(), _} = recv_packet(socket)
+
+    do_join_world(socket)
 
     wait_until(fn ->
       case Registry.lookup(Alembic.Registry.PlayerRegistry, player_id) do
@@ -245,16 +261,19 @@ defmodule Alembic.Test.Network.ConnectionTest do
       :gen_tcp.close(socket)
     end
 
-    test "auth creates player session in registry", %{
+    test "join_world creates player session in registry", %{
       socket: socket,
       challenge: challenge,
       token: token
     } do
       do_auth(socket, challenge, token)
+      {world_list(), _} = recv_packet(socket)
+      do_join_world(socket)
+
       wait_until(fn -> Registry.count(Alembic.Registry.PlayerRegistry) == 1 end)
       assert Registry.count(Alembic.Registry.PlayerRegistry) == 1
 
-      :gen_tcp.close(socket)
+      send_packet(socket, @disconnect_packet, @logout_reason)
       Process.sleep(200)
     end
   end
@@ -361,7 +380,10 @@ defmodule Alembic.Test.Network.ConnectionTest do
       # Reconnect with SAME token - server identifies player by token
       socket2 = connect()
       challenge = do_handshake(socket2)
-      {0x0011, _} = do_auth(socket2, challenge, token)
+      {auth_success(), _} = do_auth(socket2, challenge, token)
+
+      {world_list(), _} = recv_packet(socket2)
+      do_join_world(socket2)
 
       wait_until(
         fn ->
@@ -471,14 +493,17 @@ defmodule Alembic.Test.Network.ConnectionTest do
       auth_payload = <<byte_size(token)::16, token::binary, hmac::binary>>
       auth_packet = build_packet(auth_request(), auth_payload)
 
-      # Build a move packet (will be ignored if auth succeeds first)
-      move_packet = build_packet(player_move(), <<10::16, 20::16, 0::8>>)
+      world_id = "main_story"
+      join_packet = build_packet(join_world(), <<byte_size(world_id)::16, world_id::binary>>)
 
       # Send both in one TCP segment
-      :gen_tcp.send(socket, auth_packet <> move_packet)
+      :gen_tcp.send(socket, auth_packet <> join_packet)
 
       {packet_id, _} = recv_packet(socket)
       assert packet_id == auth_success()
+
+      # Consume WORLD_LIST pushed after auth
+      {world_list(), _} = recv_packet(socket)
 
       wait_until(fn -> Registry.count(Alembic.Registry.PlayerRegistry) == 1 end)
 

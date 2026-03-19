@@ -15,13 +15,9 @@ defmodule Alembic.Network.Protocol.Packet do
   defmacro heartbeat_ack, do: 0x0023
 
   # Disconnect reason codes
-  # Client requested graceful logout
   defmacro disconnect_logout, do: 0x00
-  # Auth or heartbeat timeout
   defmacro disconnect_timeout, do: 0x01
-  # Protocol violation
   defmacro disconnect_invalid_packet, do: 0x02
-  # Internal server error
   defmacro disconnect_server_error, do: 0x03
 
   # Game
@@ -39,6 +35,11 @@ defmodule Alembic.Network.Protocol.Packet do
   defmacro spawn_position, do: 0x0202
   defmacro position_confirm, do: 0x0203
   defmacro position_correction, do: 0x0204
+
+  # World selection (renamed from campaign)
+  defmacro join_world, do: 0x0300
+  defmacro leave_world, do: 0x0301
+  defmacro world_list, do: 0x0302
 
   def name(handshake_request()), do: :handshake_request
   def name(handshake_response()), do: :handshake_response
@@ -62,5 +63,8 @@ defmodule Alembic.Network.Protocol.Packet do
   def name(spawn_position()), do: :spawn_position
   def name(position_confirm()), do: :position_confirm
   def name(position_correction()), do: :position_correction
+  def name(join_world()), do: :join_world
+  def name(leave_world()), do: :leave_world
+  def name(world_list()), do: :world_list
   def name(id), do: {:unknown, id}
 end

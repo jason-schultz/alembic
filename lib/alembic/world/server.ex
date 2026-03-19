@@ -60,6 +60,8 @@ defmodule Alembic.World.Server do
 
   @type t :: %__MODULE__{
           campaign_id: String.t(),
+          name: String.t(),
+          description: String.t(),
           zones: %{String.t() => :loaded | :unloaded},
           rooms: %{String.t() => :loaded | :unloaded},
           zone_definitions: %{String.t() => Zone.t()},
@@ -72,6 +74,8 @@ defmodule Alembic.World.Server do
 
   defstruct [
     :campaign_id,
+    :name,
+    :description,
     zones: %{},
     rooms: %{},
     zone_definitions: %{},
@@ -250,6 +254,8 @@ defmodule Alembic.World.Server do
 
     state = %__MODULE__{
       campaign_id: campaign_id,
+      name: Keyword.get(opts, :name, campaign_id),
+      description: Keyword.get(opts, :description, ""),
       zones: zone_status,
       rooms: room_status,
       zone_definitions: zone_definitions,
