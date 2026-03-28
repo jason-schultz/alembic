@@ -6,71 +6,186 @@ A multiplayer 2D RPG game server built with Elixir, designed for Dungeon Masters
 
 Alembic is a real-time multiplayer game server that brings tabletop RPG campaigns to life in a digital format. Players move through grid-based zones, interact with NPCs, fight mobs, and explore worlds created by GMs. The server handles all game logic, while clients (built with Bevy/Rust) render the world and handle player input.
 
-## Current State (70% Complete)
+## Current State (~80% Complete)
 
-Alembic has a **working game world** with:
+Alembic has a **working game server** with:
 
-✅ **Grid-based zones** - Players move on x,y coordinates through large continuous zones  
-✅ **Multi-campaign support** - Run multiple independent campaigns on one server  
-✅ **Dual coordinate system** - Local zone coords + global world coords for seamless transitions  
-✅ **Viewport system** - Server sends 20x12 tile viewports to clients  
-✅ **Movement validation** - Tile walkability, boundary checking  
-✅ **Multi-player** - Multiple players visible in same zone  
-✅ **Entity system** - Players, Mobs, NPCs with stats, equipment, attributes  
-✅ **Combat system** - Multi-type damage (physical, fire, ice, etc.) with resistances  
-✅ **Process architecture** - Fault-tolerant supervised GenServers  
-✅ **Serialization** - ClientPayload protocol ready for network transmission  
+✅ **Grid-based zones** - Players move on x,y coordinates through large continuous zones
+✅ **Multi-campaign support** - Run multiple independent campaigns on one server
+✅ **Dual coordinate system** - Local zone coords + global world coords for seamless transitions
+✅ **Viewport system** - Server sends 20x12 tile viewports to clients
+✅ **Movement validation** - Tile walkability, boundary checking, room transitions
+✅ **Multi-player** - Multiple players visible in same zone
+✅ **Entity system** - Players, Mobs, NPCs with stats, equipment, attributes
+✅ **Combat system** - Multi-type damage (physical, fire, ice, etc.) with resistances
+✅ **Process architecture** - Fault-tolerant supervised GenServers
+✅ **TCP network layer** - Binary protocol, challenge/response auth, heartbeats
+✅ **Asset pipeline** - PNG validation, grid metadata, manifest generation with tile labels
+✅ **HTTP asset server** - Serves manifests and images to clients
+✅ **Campaign loader** - Loads zones, rooms, and tiles from campaign.json
 
 ### What Works Right Now
 
-```elixir
-# Start IEx and spawn a test world
+```bash
+# Start the server (TCP on :7777, HTTP assets on :8080)
 iex -S mix
-iex> world = Alembic.Fixtures.spawn_test_world()
 
-# Move players around
-iex> Alembic.Entity.Player.move("test1", :north)
-{:ok, %Position{x: 10, y: 9, ...}}
+# Process assets for a campaign
+mix alembic.assets.process main_story
+```
 
-# Get viewport (what the client would render)
-iex> Alembic.World.Zone.get_viewport("test", 10, 9)
-%{tiles: [...], entities: [...], center: %{x: 10, y: 9}}
+```elixir
+# Load a campaign from priv/campaigns/<id>/campaign.json
+Alembic.Campaign.CampaignLoader.load("main_story")
 
-# Spawn multiple players - they see each other
-iex> # Player 2 joins and sees Player 1 in their viewport
+# Move a player (direction: :north | :south | :east | :west)
+Alembic.World.Zone.move_player_facing("town_millhaven", "player_id", :north)
+
+# Get viewport (what the client renders)
+Alembic.World.Zone.get_viewport("town_millhaven", 10, 9)
+# => %{tiles: [...240 tiles...], entities: [...]}
 ```
 
 ## Architecture Overview
 
-### Core Architecture (85% Complete)
+### Server Architecture
 
 ```
-Campaign
-└── World.Server (coordinates zones, time, weather)
-    ├── Zone: Overworld (GenServer - 256x256 grid)
-    │   ├── Players (tracked positions)
-    │   ├── Mobs (AI, spawns, loot)
-    │   └── Tiles (walkability, textures)
-    ├── Zone: Dungeon
-    └── Room: Tavern (GenServer - 32x32 grid)
-        └── Entrances (doors to/from zones)
+                          ┌─────────────────────┐
+Rust/Bevy client ──TCP──► │ Network.Acceptor     │ :7777
+                          │ Network.ConnectionHandler (per client)
+                          └──────────┬──────────┘
+                                     │
+                          ┌──────────▼──────────┐
+Rust/Bevy client ──HTTP──►│ Http.AssetServer     │ :8080
+                          │ /worlds/:id/manifest  │
+                          │ /worlds/:id/assets/*  │
+                          └──────────┬──────────┘
+                                     │
+                          ┌──────────▼──────────┐
+                          │ Campaign.CampaignLoader
+                          │ World.Server          │
+                          │ ├── Zone (GenServer)  │
+                          │ │   ├── Players       │
+                          │ │   ├── Mobs          │
+                          │ │   └── Tiles         │
+                          │ └── Room (GenServer)  │
+                          └─────────────────────┘
 ```
 
-**Process Model:**
-- ✅ Each Campaign = 1 World.Server GenServer
-- ✅ Each Zone = 1 Zone GenServer (tick loop for mob AI, spawns)
-- ✅ Each Room = 1 Room GenServer (loaded on-demand)
-- ✅ Each Player = 1 Player GenServer (connection state, inventory)
-- ✅ Each Mob = 1 Mob GenServer (AI state machine)
-- ✅ All supervised for fault tolerance
+### Process Model
 
-### Module Breakdown
+- Each Campaign = 1 `World.Server` GenServer
+- Each Zone = 1 `Zone` GenServer (tick loop for mob AI, spawns)
+- Each Room = 1 `Room` GenServer (loaded on-demand)
+- Each Player = 1 `Player` GenServer (connection state, inventory)
+- Each Connection = 1 `ConnectionHandler` GenServer (temporary, supervised)
+- All supervised for fault tolerance
 
-#### 🟢 Entity System (90% Complete)
+---
+
+## Module Breakdown
+
+### 🟢 Network Layer (70% Complete)
 
 | Module | Status | Notes |
 |--------|--------|-------|
-| `Entity.Player` | ✅ | GenServer with movement, inventory, equipment |
+| `Network.Acceptor` | ✅ | TCP listener on port 7777 |
+| `Network.ConnectionHandler` | ✅ | Per-client GenServer, full state machine |
+| `Network.Protocol.Packet` | ✅ | Packet type constants (macros) |
+| `Network.Protocol.Encoder` | ✅ | Binary packet encoding |
+| `Network.Protocol.Decoder` | ✅ | Binary packet decoding |
+| `Supervisors.ConnectionSupervisor` | ✅ | DynamicSupervisor for connections |
+| `Http.AssetServer` | ✅ | Bandit/Plug HTTP server on port 8080 |
+
+**Connection state machine:** `:handshake` → `:authenticating` → `:authenticated` → `:active`
+
+**Protocol:** Custom binary protocol with 13-byte header (`ALBC` magic + version + packet ID + length). Auth uses HMAC-SHA256 challenge/response with a 10-second auth timeout and 30-second heartbeats.
+
+**Packet types defined:**
+
+| Range | Category | Packets |
+|-------|----------|---------|
+| `0x0001–0x0002` | Handshake | `handshake_request`, `handshake_response` |
+| `0x0010–0x0012` | Auth | `auth_request`, `auth_success`, `auth_failure` |
+| `0x0020–0x0023` | Session | `session_ready`, `disconnect`, `heartbeat`, `heartbeat_ack` |
+| `0x0100–0x0107` | Game | `player_move`, `viewport_update`, `entity_spawn/despawn/move`, `combat_event`, `chat_message` |
+| `0x0200–0x0204` | World sync | `zone_info`, `room_info`, `spawn_position`, `position_confirm/correction` |
+| `0x0300–0x0302` | World selection | `join_world`, `leave_world`, `world_list` |
+
+**Missing:**
+- [ ] Room transition packets (enter/exit room)
+- [ ] Entity broadcast to nearby players (currently only sender gets updates)
+- [ ] Reconnect session handoff (handler PID transfer)
+
+---
+
+### 🟢 Asset Pipeline (100% Complete) ✅
+
+| Module | Status | Notes |
+|--------|--------|-------|
+| `Assets.Processor` | ✅ | Reads PNG dimensions from header, computes grid columns/rows |
+| `Assets.Validator` | ✅ | Validates PNG files (existence, magic bytes, size, dimensions, tile label bounds) |
+| `Assets.Manifest` | ✅ | Reads asset_meta.json, validates assets, writes manifest.json |
+
+**Mix task:** `mix alembic.assets.process <world_id>`
+
+**asset_meta.json format:**
+```json
+{
+  "tilesets": [
+    {
+      "id": "Water_Tile",
+      "file": "manifest/tiles/Water_Tile.png",
+      "tile_width": 16,
+      "tile_height": 16,
+      "tile_labels": {
+        "water_fill": [1, 1],
+        "water_edge_top": [1, 0]
+      }
+    }
+  ],
+  "sprite_sheets": [...],
+  "npc_sheets": [...]
+}
+```
+
+`tile_labels` are optional. Each label maps a friendly name to a `[column, row]` atlas coordinate. Invalid coordinates (out of grid bounds) are caught at build time.
+
+---
+
+### 🟢 HTTP Asset Server (100% Complete) ✅
+
+Runs on port 8080 (configurable via `:alembic, :asset_port`).
+
+| Route | Description |
+|-------|-------------|
+| `GET /health` | Liveness check |
+| `GET /worlds/:world_id/manifest` | Unified asset manifest (JSON) |
+| `GET /worlds/:world_id/assets/*path` | Serves PNG/JPG asset files |
+
+Only serves assets for running campaigns. Validates `world_id` against path traversal. Restricted to image file extensions.
+
+---
+
+### 🟢 Campaign Loader (100% Complete) ✅
+
+| Module | Status | Notes |
+|--------|--------|-------|
+| `Campaign.CampaignLoader` | ✅ | Reads campaign.json, builds Zone/Room structs, starts the world |
+| `Campaign.CampaignManager` | ✅ | Start/stop campaigns, list running worlds |
+
+**campaign.json structure:** defines `id`, `name`, `start_zone_id`, `start_x/y`, a `zones` array (each with a 2D tile grid), and a `rooms` array (each with entrances that link back to zones).
+
+Tiles reference tilesets by `asset_id` (matching `tile_labels` in `asset_meta.json`).
+
+---
+
+### 🟢 Entity System (90% Complete)
+
+| Module | Status | Notes |
+|--------|--------|-------|
+| `Entity.Player` | ✅ | GenServer with movement, inventory, equipment, handler PID |
 | `Entity.Mob` | ✅ | Struct ready, GenServer pending |
 | `Entity.NPC` | ✅ | Struct ready, GenServer pending |
 | `Entity.Position` | ✅ | Dual coords (zone + world), facing direction |
@@ -87,36 +202,31 @@ Campaign
 - [ ] NPC dialogue trees
 - [ ] Status effects (buffs/debuffs)
 
-#### 🟢 World System (80% Complete)
+---
+
+### 🟢 World System (85% Complete)
 
 | Module | Status | Notes |
 |--------|--------|-------|
-| `World.Zone` | ✅ | GenServer with viewport, tick loop |
+| `World.Zone` | ✅ | GenServer with viewport, movement, tick loop |
 | `World.Room` | ✅ | GenServer with multiple entrances |
 | `World.Tile` | ✅ | Texture, walkability, type, elevation |
-| `World.Server` | ✅ | Campaign coordinator, zone loading |
+| `World.Server` | ✅ | Campaign coordinator, spawn positions |
 | `World.Base` | ✅ | Shared GenServer logic for Zone/Room |
-| `World.ChunkManager` | ⚠️ | Planned - viewport delta streaming |
+| `World.TileDefinition` | ✅ | Tile type definitions |
+| `World.SpawnPoint` | ✅ | Spawn point struct |
+| `World.Exit` | ✅ | Zone exit definitions |
+| `World.RoomDefinition` | ✅ | Room definition struct |
+| `World.ChunkManager` | ⚠️ | Planned — viewport delta streaming |
 
 **Missing:**
-- [ ] Zone/Room loading from files (JSON/YAML)
-- [ ] Procedural generation
-- [ ] Tile metadata (doors, levers, chests)
 - [ ] Zone transitions (seamless zone borders)
+- [ ] Procedural generation
+- [ ] Tile interaction metadata (doors, levers, chests)
 
-#### 🟢 Campaign System (90% Complete)
+---
 
-| Module | Status | Notes |
-|--------|--------|-------|
-| `Campaign.CampaignManager` | ✅ | Start/stop campaigns, list running |
-| `Campaign.CampaignRegistry` | ✅ | Track running campaigns |
-
-**Missing:**
-- [ ] Campaign file format definition
-- [ ] Campaign loader (from disk/database)
-- [ ] Campaign metadata (name, description, GM)
-
-#### 🟢 Registry System (100% Complete) ✅
+### 🟢 Registry System (100% Complete) ✅
 
 | Registry | Status |
 |----------|--------|
@@ -128,7 +238,9 @@ Campaign
 | `Registry.RoomRegistry` | ✅ |
 | `Registry.CampaignRegistry` | ✅ |
 
-#### 🟢 Supervisor System (100% Complete) ✅
+---
+
+### 🟢 Supervisor System (100% Complete) ✅
 
 | Supervisor | Status |
 |------------|--------|
@@ -138,14 +250,17 @@ Campaign
 | `Supervisors.ZoneSupervisor` | ✅ |
 | `Supervisors.RoomSupervisor` | ✅ |
 | `Supervisors.CampaignSupervisor` | ✅ |
+| `Supervisors.ConnectionSupervisor` | ✅ |
 
-#### 🟡 Game Systems (60% Complete)
+---
+
+### 🟡 Game Systems (60% Complete)
 
 | Module | Status | Notes |
 |--------|--------|-------|
 | `Game.Combat` | ⚠️ | Damage calculation stub |
 | `Game.Movement` | ✅ | Position updates, validation |
-| `Game.Commands` | ⚠️ | Planned - text command parser |
+| `Game.Commands` | ⚠️ | Planned — text command parser |
 
 **Missing:**
 - [ ] Combat resolution (attack rolls, crits, dodges)
@@ -154,20 +269,20 @@ Campaign
 - [ ] Dialogue system
 - [ ] Crafting system
 
-#### 🟡 Network Layer (0% Complete)
+---
+
+### 🟡 Accounts / Auth (50% Complete)
 
 | Module | Status | Notes |
 |--------|--------|-------|
-| `Network.Endpoint` | ❌ | Phoenix endpoint |
-| `Network.PlayerChannel` | ❌ | WebSocket per player |
-| `Network.Message` | ❌ | Message format definitions |
-| `Serialization.ClientPayload` | ✅ | Protocol ready! |
+| `Accounts` | ⚠️ | `get_player_by_token/1` stub — no persistence yet |
 
 **Missing:**
-- [ ] Phoenix Channels setup
-- [ ] Message handlers (move, attack, interact)
-- [ ] Broadcast system (player movement to nearby players)
-- [ ] Authentication/authorization
+- [ ] Player account storage (Ecto + SQLite)
+- [ ] Token issuance / revocation
+- [ ] Session persistence across restarts
+
+---
 
 ## Running the Server
 
@@ -176,43 +291,52 @@ Campaign
 - Elixir 1.18+ and Erlang/OTP 27+
 - Mix build tool
 
+### Dependencies
+
+| Dep | Purpose |
+|-----|---------|
+| `ecto_sql ~> 3.13` | Database (persistence, planned) |
+| `jason ~> 1.4` | JSON encoding/decoding |
+| `plug ~> 1.14` | HTTP routing for asset server |
+| `bandit ~> 1.0` | HTTP server (asset serving on port 8080) |
+
 ### Quick Start
 
 ```bash
 # Install dependencies
 mix deps.get
 
-# Start interactive shell
-iex -S mix
+# Process assets for a campaign (generates manifest.json)
+mix alembic.assets.process main_story
 
-# Spawn a test world
-iex> world = Alembic.Fixtures.spawn_test_world()
+# Start interactive shell (TCP :7777, HTTP :8080)
+iex -S mix
+```
+
+```elixir
+# Load a campaign
+Alembic.Campaign.CampaignLoader.load("main_story")
 
 # Move a player
-iex> Alembic.Entity.Player.move(world.player_id, :north)
-{:ok, %Position{x: 10, y: 9, ...}}
+Alembic.World.Zone.move_player_facing("town_millhaven", player_id, :north)
 
-# Get viewport (what client sees)
-iex> Alembic.World.Zone.get_viewport(world.zone_id, 10, 9)
-%{tiles: [...240 tiles...], entities: [%{type: :player, id: "test1", ...}]}
-
-# Spawn another player
-iex> position2 = %Alembic.Entity.Position{zone_id: "test", x: 12, y: 10, world_x: 12, world_y: 10, facing: :west}
-iex> Alembic.Supervisors.PlayerSupervisor.start_player("test2", name: "Bob", position: position2)
-iex> Alembic.World.Zone.player_enter("test", "test2", 12, 10)
-
-# Now viewport shows BOTH players
-iex> Alembic.World.Zone.get_viewport("test", 10, 10)
-%{entities: [%{id: "test1", ...}, %{id: "test2", ...}]}
+# Get viewport
+Alembic.World.Zone.get_viewport("town_millhaven", 10, 9)
 ```
 
 ### Module Organization
 
 ```
 lib/alembic/
+├── application.ex
+├── accounts.ex                  # Token-based auth (stub)
+├── assets/
+│   ├── manifest.ex              # Reads asset_meta.json, writes manifest.json
+│   ├── processor.ex             # PNG dimension extraction, grid computation
+│   └── validator.ex             # PNG + tile label validation
 ├── campaign/
-│   ├── campaign_manager.ex      # API for starting/stopping campaigns
-│   └── campaign_registry.ex     # Registry (uses Base)
+│   ├── campaign_loader.ex       # Loads campaign.json, starts zones/rooms
+│   └── campaign_manager.ex      # Start/stop campaigns, list running worlds
 ├── entity/
 │   ├── base.ex                  # Shared GenServer logic
 │   ├── player.ex                # Player GenServer
@@ -220,13 +344,22 @@ lib/alembic/
 │   ├── npc.ex                   # NPC struct (GenServer TODO)
 │   ├── position.ex              # Dual coordinate system
 │   ├── stats.ex                 # HP, MP, resistances
-│   ├── attributes.ex            # RPG stats
-│   ├── equipment.ex             # 13 slots
+│   ├── attributes.ex            # RPG attributes
+│   ├── equipment.ex             # 13 equipment slots
 │   ├── sprite_config.ex         # Animation state
 │   ├── combatant.ex             # Protocol for combat
 │   └── damage_component.ex      # Multi-type damage
+├── http/
+│   └── asset_server.ex          # Bandit/Plug HTTP server (port 8080)
+├── network/
+│   ├── acceptor.ex              # TCP listener (port 7777)
+│   ├── connection_handler.ex    # Per-client state machine GenServer
+│   └── protocol/
+│       ├── packet.ex            # Packet type constants
+│       ├── encoder.ex           # Binary packet encoding
+│       └── decoder.ex           # Binary packet decoding
 ├── registry/
-│   ├── base.ex                  # Shared registry logic
+│   ├── base.ex
 │   ├── player_registry.ex
 │   ├── mob_registry.ex
 │   ├── npc_registry.ex
@@ -239,110 +372,65 @@ lib/alembic/
 │   ├── npc_supervisor.ex
 │   ├── zone_supervisor.ex
 │   ├── room_supervisor.ex
-│   └── campaign_supervisor.ex
-├── world/
-│   ├── base.ex                  # Shared Zone/Room logic
-│   ├── zone.ex                  # Large zone GenServer
-│   ├── room.ex                  # Small room GenServer
-│   ├── tile.ex                  # Grid tile struct
-│   └── server.ex                # World coordinator
-├── game/
-│   ├── combat.ex                # Combat resolution
-│   ├── movement.ex              # Movement logic
-│   └── commands.ex              # Command parser
-├── serialization.ex             # ClientPayload protocol
-├── fixtures.ex                  # Test data helpers
-└── application.ex               # OTP app entry point
+│   ├── campaign_supervisor.ex
+│   └── connection_supervisor.ex
+└── world/
+    ├── base.ex                  # Shared Zone/Room logic
+    ├── zone.ex                  # Large zone GenServer
+    ├── room.ex                  # Small room GenServer
+    ├── tile.ex                  # Grid tile struct
+    ├── tile_definition.ex       # Tile type definitions
+    ├── spawn_point.ex           # Spawn point struct
+    ├── exit.ex                  # Zone exit definitions
+    ├── room_definition.ex       # Room definition struct
+    ├── object_definition.ex     # World object definitions
+    ├── server.ex                # World coordinator
+    └── campaign_loader.ex       # Campaign deserialization
+
+lib/mix/tasks/
+└── alembic.assets.process.ex   # mix alembic.assets.process <world_id>
+
+priv/campaigns/<world_id>/
+├── campaign.json                # Zone layout, tile grid, room entrances
+├── asset_meta.json              # Tileset + spritesheet definitions with tile_labels
+└── manifest/
+    ├── tiles/                   # Tileset PNGs
+    └── sprites/                 # Character + NPC spritesheet PNGs
 ```
+
+---
 
 ## Next Steps (Priority Order)
 
-### Phase 1: Playable Demo (1-2 weeks)
+### Phase 1: Playable Client Connection
 
-**Goal:** Players can connect, walk around, and see each other
+1. **Entity broadcast** — When a player moves, nearby players should receive `entity_move` packets. Currently only the moving player gets a viewport update.
 
-1. **World Data Loading** (2-3 days)
-   - [ ] Define zone file format (JSON/YAML)
-   - [ ] Tile loader (parse texture_id, walkability)
-   - [ ] Spawn point configuration
-   - [ ] Create 2-3 sample zones (town, forest, dungeon)
+2. **Room transitions** — The connection handler has TODOs for `enter_room` / `leave_room`. Wire up `World.Server.enter_room` and send `room_info` + `spawn_position` to the client.
 
-2. **Phoenix Channels** (2-3 days)
-   - [ ] Add `phoenix` and `phoenix_pubsub` dependencies
-   - [ ] Create `Network.Endpoint`
-   - [ ] Create `Network.PlayerChannel`
-   - [ ] Wire up `move`, `get_viewport`, `interact` handlers
-   - [ ] Broadcast player movement to nearby players
+3. **Account persistence** — `Accounts.get_player_by_token/1` is a stub. Needs Ecto + SQLite to store player accounts and issue tokens.
 
-3. **Collision Detection** (1 day)
-   - [ ] Add varied terrain (grass, water, stone walls)
-   - [ ] Test movement validation against non-walkable tiles
-   - [ ] Add door tiles (transition points)
+4. **Rust/Bevy client** — Connect to the TCP server, read the binary protocol, render the viewport.
 
-4. **Testing & Polish** (2 days)
-   - [ ] Integration tests for multi-player scenarios
-   - [ ] Performance testing (100+ players in one zone)
-   - [ ] Fix viewport edge cases
+### Phase 2: Combat & NPCs
 
-### Phase 2: Combat & NPCs (2-3 weeks)
+5. **Combat resolution** — Implement `Game.Combat.resolve_attack/3` with attack rolls, crits, dodges, death.
 
-5. **Combat System** (1 week)
-   - [ ] Implement `Game.Combat.resolve_attack/3`
-   - [ ] Attack rolls, crits, dodges
-   - [ ] Death handling (respawn, loot drops)
-   - [ ] Experience & leveling
+6. **Mob AI** — Promote Mob to GenServer with an AI state machine (idle → wander → aggro → combat → dead), pathfinding (A*), respawn timers.
 
-6. **Mob AI** (1 week)
-   - [ ] Promote Mob to GenServer
-   - [ ] AI state machine (idle → wander → aggro → combat → dead)
-   - [ ] Aggro detection (check player distance each tick)
-   - [ ] Pathfinding (A* for mob movement)
-   - [ ] Respawn timers
+7. **NPCs** — Promote NPC to GenServer with dialogue trees, shop system, quest givers.
 
-7. **NPCs** (3-4 days)
-   - [ ] Promote NPC to GenServer
-   - [ ] Dialogue system (tree-based)
-   - [ ] Shop system (buy/sell items)
-   - [ ] Quest givers
+### Phase 3: GM Tools
 
-### Phase 3: Client Integration (3-4 weeks)
+8. **Campaign builder** — Web-based map editor, drag-and-drop tile placement, NPC/mob spawn editors.
 
-8. **Bevy Client (Rust)** (2 weeks)
-   - [ ] WebSocket connection to Alembic server
-   - [ ] Tile rendering (2D grid)
-   - [ ] Entity rendering (players, mobs, NPCs)
-   - [ ] Sprite animation (walk cycles, idle)
-   - [ ] Input handling (WASD movement, mouse clicks)
+9. **Campaign tile validation** — Validate that every `asset_id` in campaign.json's tile grid matches a `tile_label` in asset_meta.json (currently a backlog item).
 
-9. **Asset Pipeline** (1 week)
-   - [ ] Texture atlas generation
-   - [ ] Sprite sheet loader
-   - [ ] Asset uploading (GM custom sprites)
-
-10. **UI & Polish** (1 week)
-    - [ ] Chat system
-    - [ ] Inventory UI
-    - [ ] Character stats panel
-    - [ ] Health bars
-    - [ ] Minimap
-
-### Phase 4: GM Tools (2-3 weeks)
-
-11. **World Builder** (2 weeks)
-    - [ ] Web-based map editor
-    - [ ] Drag-and-drop tile placement
-    - [ ] NPC/mob spawn point editor
-    - [ ] Campaign export/import
-
-12. **GM Master View** (1 week)
-    - [ ] God-mode viewport (see all zones)
-    - [ ] Spawn mobs/items on-the-fly
-    - [ ] Dice rolling interface
-    - [ ] Player kick/ban controls
+---
 
 ## Roadmap
 
-### ✅ Completed (70%)
+### ✅ Completed (~80%)
 
 - [x] Grid-based zones with tile system
 - [x] Dual coordinate system (local + world)
@@ -354,23 +442,26 @@ lib/alembic/
 - [x] Multi-type damage system
 - [x] Process architecture (supervised GenServers)
 - [x] Registry system (all entities)
-- [x] Serialization (ClientPayload protocol)
 - [x] Campaign manager (multi-campaign support)
-- [x] Test fixtures and helpers
+- [x] TCP network layer (binary protocol, auth, heartbeats)
+- [x] Asset pipeline (PNG validation, grid metadata, tile labels, manifest.json)
+- [x] HTTP asset server (manifest + file serving)
+- [x] Campaign loader (campaign.json → Zone/Room structs)
 
-### 🚧 In Progress (15%)
+### 🚧 In Progress
 
-- [ ] World data loading (zone files)
-- [ ] Phoenix Channels integration
-- [ ] Collision detection with varied terrain
+- [ ] Entity broadcast (movement visible to nearby players)
+- [ ] Room transitions (enter/exit room packets)
+- [ ] Account persistence (Ecto + SQLite)
 
-### 📋 Planned (15%)
+### 📋 Planned
 
-**Networking**
-- [ ] WebSocket server (Phoenix Channels)
-- [ ] Authentication/authorization
-- [ ] Session management
-- [ ] Broadcast system (player movement)
+**Client**
+- [ ] Rust + Bevy client
+- [ ] Tile rendering (2D grid from manifest)
+- [ ] Entity rendering (players, mobs, NPCs)
+- [ ] Sprite animation (walk cycles, idle)
+- [ ] UI (chat, inventory, stats, health bars, minimap)
 
 **Combat**
 - [ ] Attack resolution (rolls, crits, misses)
@@ -386,26 +477,17 @@ lib/alembic/
 
 **Persistence**
 - [ ] SQLite integration (Ecto)
-- [ ] Save/load campaigns
 - [ ] Player character persistence
 - [ ] World state snapshots
 
 **World Building**
-- [ ] Zone file format (JSON/YAML)
+- [ ] Campaign tile validation (asset_id ↔ tile_label cross-check)
+- [ ] Campaign builder UI (web-based map editor)
 - [ ] Procedural generation
-- [ ] Tiled Map Editor integration
-- [ ] World builder UI
 
-**Client**
-- [ ] Bevy/Rust client
-- [ ] Tile rendering
-- [ ] Entity rendering
-- [ ] Animation system
-- [ ] UI (chat, inventory, stats)
+---
 
 ## Future Vision
-
-### Long-term Goals
 
 **Distributed Elixir**
 - [ ] Multi-node deployment (distribute zones across nodes)
@@ -415,25 +497,17 @@ lib/alembic/
 **Advanced Features**
 - [ ] Weather systems (rain, snow, fog)
 - [ ] Day/night cycle (already stubbed in World.Server)
-- [ ] Season changes
 - [ ] Dynamic events (boss spawns, world events)
-- [ ] Crafting system
-- [ ] Building/housing system
-- [ ] PvP zones
-- [ ] Guild system
+- [ ] Crafting and building/housing systems
+- [ ] PvP zones, guild system
 
 **GM Features**
 - [ ] Live campaign editing (change zones while players are in them)
 - [ ] Dynamic difficulty scaling
 - [ ] Campaign templates (pre-built adventures)
-- [ ] Marketplace for community campaigns
-- [ ] Sprite marketplace (community assets)
+- [ ] Community asset marketplace
 
-**Analytics**
-- [ ] Player behavior tracking
-- [ ] Zone heat maps (where players spend time)
-- [ ] Combat statistics
-- [ ] Economy monitoring (gold flow, item distribution)
+---
 
 ## Development
 
@@ -445,12 +519,9 @@ mix test
 
 ### Code Quality
 
-```elixir
+```bash
 # Check for compile-time warnings
 mix compile --warnings-as-errors
-
-# Run Dialyzer (type checking)
-mix dialyzer
 
 # Format code
 mix format
@@ -462,19 +533,23 @@ mix format
 mix docs
 ```
 
-Documentation will be generated in the `doc/` directory.
+---
 
 ## Technical Stack
 
-- **Server:** Elixir 1.18+ / OTP 27+
-- **Client:** Rust + Bevy (planned)
-- **Network:** Phoenix Channels (WebSocket)
-- **Persistence:** SQLite + Ecto (planned)
-- **Deployment:** Docker + Fly.io (planned)
+| Layer | Technology |
+|-------|-----------|
+| Server | Elixir 1.18+ / OTP 27+ |
+| Game protocol | Raw TCP, custom binary protocol (port 7777) |
+| Asset serving | HTTP via Bandit + Plug (port 8080) |
+| JSON | Jason |
+| Persistence | Ecto + SQLite (planned) |
+| Client | Rust + Bevy (planned) |
+| Deployment | Docker + Fly.io (planned) |
 
 ## Contributing
 
-This is currently a personal project. Contributions are welcome once the initial architecture stabilizes (Phase 2 completion).
+This is currently a personal project. Contributions are welcome once the initial architecture stabilizes.
 
 ## License
 
@@ -482,7 +557,4 @@ This project is currently unlicensed. Please contact the maintainer for usage pe
 
 ---
 
-**Current Status:** 70% complete - Core architecture done, working test world, ready for networking integration.
-
-**Next Milestone:** Playable demo with Phoenix Channels (1-2 weeks)
-
+**Current Status:** ~80% complete — core architecture, networking, asset pipeline, and campaign loading done. Next milestone: entity broadcast + room transitions + Rust client.
