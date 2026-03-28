@@ -11,6 +11,7 @@ defmodule Alembic.World.Base do
     viewport_width = Keyword.get(opts, :viewport_width, 20)
     viewport_height = Keyword.get(opts, :viewport_height, 12)
     tick_interval = Keyword.get(opts, :tick_interval, 100)
+    hibernate_after = Keyword.get(opts, :hibernate_after, 15_000)
 
     quote do
       use GenServer
@@ -29,7 +30,10 @@ defmodule Alembic.World.Base do
       Starts the GenServer for the given world data.
       """
       def start_link(world_data) do
-        GenServer.start_link(__MODULE__, world_data, name: via_tuple(world_data.id))
+        GenServer.start_link(__MODULE__, world_data,
+          name: via_tuple(world_data.id),
+          hibernate_after: unquote(hibernate_after)
+        )
       end
 
       @doc """
