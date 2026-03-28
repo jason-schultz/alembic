@@ -7,6 +7,7 @@ defmodule Alembic.Entity.Base do
 
   defmacro __using__(opts) do
     registry = Keyword.fetch!(opts, :registry)
+    hibernate_after = Keyword.get(opts, :hibernate_after, 15_000)
 
     quote do
       use GenServer
@@ -18,7 +19,11 @@ defmodule Alembic.Entity.Base do
 
       def start_link(opts) do
         id = Keyword.fetch!(opts, :id)
-        GenServer.start_link(__MODULE__, opts, name: via_tuple(id))
+
+        GenServer.start_link(__MODULE__, opts,
+          name: via_tuple(id),
+          hibernate_after: unquote(hibernate_after)
+        )
       end
 
       def get_state(entity_id) do

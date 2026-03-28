@@ -1,5 +1,7 @@
 defmodule Alembic.Entity.Player do
-  use Alembic.Entity.Base, registry: Alembic.Registry.PlayerRegistry
+  use Alembic.Entity.Base,
+    registry: Alembic.Registry.PlayerRegistry,
+    hibernate_after: 30_000
 
   alias Alembic.Entity.{Attributes, Equipment, Position, Stats}
 

@@ -18,7 +18,8 @@ defmodule Alembic.World.Zone do
     registry: Alembic.Registry.ZoneRegistry,
     viewport_width: 32,
     viewport_height: 24,
-    tick_interval: 100
+    tick_interval: 100,
+    hibernate_after: 30_000
 
   @zone_types [:overworld, :dungeon, :town, :wilderness, :interior]
 
@@ -175,8 +176,13 @@ defmodule Alembic.World.Zone do
     |> Map.delete(exclude_id)
     |> Enum.each(fn {player_id, _pos} ->
       case Registry.lookup(Alembic.Registry.PlayerRegistry, player_id) do
-        [{pid, _}] -> send(pid, {:zone_event, message})
-        [] -> Logger.warning("broadcast_to_others: player #{player_id} not found in registry, skipping")
+        [{pid, _}] ->
+          send(pid, {:zone_event, message})
+
+        [] ->
+          Logger.warning(
+            "broadcast_to_others: player #{player_id} not found in registry, skipping"
+          )
       end
     end)
   end
