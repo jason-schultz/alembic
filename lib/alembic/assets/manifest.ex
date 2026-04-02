@@ -70,6 +70,12 @@ defmodule Alembic.Assets.Manifest do
              height,
              sheet_meta["cell_width"],
              sheet_meta["cell_height"]
+           ),
+         {:ok, animations} <-
+           Alembic.Assets.Validator.validate_animation_labels(
+             columns,
+             rows,
+             sheet_meta
            ) do
       entry = %{
         id: sheet_meta["id"],
@@ -80,7 +86,8 @@ defmodule Alembic.Assets.Manifest do
         columns: columns,
         rows: rows,
         cell_width: sheet_meta["cell_width"],
-        cell_height: sheet_meta["cell_height"]
+        cell_height: sheet_meta["cell_height"],
+        animations: animations
       }
 
       {:ok, entry}
