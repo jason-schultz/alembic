@@ -36,13 +36,71 @@ defmodule Alembic.Assets.Validator do
   end
 
   @doc """
+  Validates that animation labels are in the correct format and within bounds of the spritesheet dimensions.
+  Expects labels to be a map where keys are label names and values are maps with keys :row, :frames, and optional :flip_x.
+   - row must be an integer between 0 and rows-1
+   - frames must be an integer between 1 and columns
+    - flip_x must be a boolean if present
+  """
+  @spec validate_animation_labels(non_neg_integer(), non_neg_integer(), map) ::
+          {:ok, map}
+          | {:error, {:invalid_animation_labels, [%{label: String.t(), file: String.t()}]}}
+  def validate_animation_labels(columns, rows, sheet_meta) when is_map(sheet_meta) do
+    Map.get(sheet_meta, "animation_labels", %{})
+    |> Enum.reduce({%{}, []}, fn {label, info}, {valid, errors} ->
+      case validate_animation_label(label, info, columns, rows, sheet_meta) do
+        {:ok, _} -> {Map.put(valid, label, info), errors}
+        {:error, info} -> {valid, [info | errors]}
+      end
+    end)
+    |> then(fn
+      {valid, []} ->
+        {:ok, valid}
+
+      {_, bad} ->
+        {:error, {:invalid_animation_labels, bad}}
+    end)
+  end
+
+  def validate_animation_labels(_, _, _), do: {:ok, %{}}
+
+  defp validate_animation_label(label, info, columns, rows, sheet_meta) do
+    cond do
+      not is_binary(label) ->
+        {:error, %{label: label, file: sheet_meta["file"]}}
+
+      not is_map(info) ->
+        {:error, %{label: label, file: sheet_meta["file"]}}
+
+      true ->
+        row = Map.get(info, "row")
+        frames = Map.get(info, "frames")
+        flip_x = Map.get(info, "flip_x", false)
+
+        cond do
+          not is_integer(row) or row < 0 or row >= rows ->
+            {:error, %{label: label, file: sheet_meta["file"]}}
+
+          not is_integer(frames) or frames < 1 or frames > columns ->
+            {:error, %{label: label, file: sheet_meta["file"]}}
+
+          not is_boolean(flip_x) ->
+            {:error, %{label: label, file: sheet_meta["file"]}}
+
+          true ->
+            {:ok, %{label => info}}
+        end
+    end
+  end
+
+  @doc """
   Validates that tile labels are in the correct format and within bounds of the tileset dimensions.
   Expects labels to be a map where keys are label names and values are [column, row] coordinates.
   """
   @spec validate_tile_labels(non_neg_integer, non_neg_integer, map) ::
           {:ok, map}
           | {:error,
-             {:invalid_tile_label, [%{label: String.t(), coords: [integer], file: String.t()}]}}
+             {:invalid_tile_labels, [%{label: String.t(), coords: [integer], file: String.t()}]}}
   def validate_tile_labels(columns, rows, tileset_meta) when is_map(tileset_meta) do
     Map.get(tileset_meta, "tile_labels", %{})
     |> Enum.reduce({%{}, []}, fn {label, coords}, {valid, errors} ->

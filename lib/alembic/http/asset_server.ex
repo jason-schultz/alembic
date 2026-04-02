@@ -35,18 +35,25 @@ defmodule Alembic.Http.AssetServer do
         send_resp(conn, 404, "Not found")
 
       true ->
-        body =
-          Jason.encode!(%{
-            tiles: list_tiles(world_id),
-            sprites: %{
-              characters: list_character_sprites(world_id),
-              npcs: list_npc_sprites(world_id)
-            }
-          })
+        manifest_path = Path.join([worlds_base_path(), world_id, "manifest.json"])
 
-        conn
-        |> put_resp_content_type("application/json")
-        |> send_resp(200, body)
+        case File.read(manifest_path) do
+          {:ok, body} ->
+            conn
+            |> put_resp_content_type("application/json")
+            |> send_resp(200, body)
+
+          {:error, reason} ->
+            Logger.error(
+              "manifest.json missing for world #{world_id} (#{inspect(reason)}). Run: mix alembic.assets.process #{world_id}"
+            )
+
+            send_resp(
+              conn,
+              500,
+              "Manifest not found — run mix alembic.assets.process #{world_id}"
+            )
+        end
     end
   end
 
@@ -88,56 +95,12 @@ defmodule Alembic.Http.AssetServer do
     send_resp(conn, 404, "Not found")
   end
 
-  # ── Manifest helpers ─────────────────────────────────────────────────
-
-  defp list_tiles(world_id) do
-    dir = Path.join(world_manifest_path(world_id), "tiles")
-
-    list_png_files(dir, fn filename ->
-      %{id: Path.rootname(filename), file: "tiles/#{filename}"}
-    end)
-  end
-
-  defp list_character_sprites(world_id) do
-    dir = Path.join(world_manifest_path(world_id), "sprites/characters")
-
-    list_png_files(dir, fn filename ->
-      %{
-        id: Path.rootname(filename),
-        filename: filename,
-        url: "/worlds/#{world_id}/assets/sprites/characters/#{filename}"
-      }
-    end)
-  end
-
-  defp list_npc_sprites(world_id) do
-    dir = Path.join(world_manifest_path(world_id), "sprites/npcs")
-
-    list_png_files(dir, fn filename ->
-      %{id: Path.rootname(filename), file: "sprites/npcs/#{filename}"}
-    end)
-  end
-
-  defp list_png_files(dir, mapper) do
-    case File.ls(dir) do
-      {:ok, files} ->
-        files
-        |> Enum.filter(&String.ends_with?(&1, ".png"))
-        |> Enum.map(mapper)
-        |> Enum.sort_by(& &1.id)
-
-      {:error, reason} ->
-        Logger.warning("Could not list files in #{dir}: #{inspect(reason)}")
-        []
-    end
-  end
-
   defp worlds_base_path do
     Application.get_env(:alembic, :worlds_path, "priv/campaigns")
   end
 
   defp world_manifest_path(world_id) do
-    Path.join([worlds_base_path(), world_id, "manifest"])
+    Path.join([worlds_base_path(), world_id])
   end
 
   defp valid_world_id?(world_id) do
